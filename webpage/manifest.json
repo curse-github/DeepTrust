@@ -1,0 +1,29 @@
+{
+    "name": "DeepTrust",
+    "short_name": "DeepTrust",
+    "icons":[
+        {
+            "src":"/favicon.png",
+            "sizes":"512x512",
+            "type":"image/png"
+        }
+    ],
+    "screenshots":[
+        {
+            "src":"/favicon.png",
+            "sizes":"512x512",
+            "type":"image/png",
+            "form_factor":"wide"
+        },
+        {
+            "src":"/favicon.png",
+            "sizes":"512x512",
+            "type":"image/png",
+            "form_factor":"narrow"
+        }
+    ],
+    "start_url": "/index.html",
+    "display": "fullscreen",
+    "theme_color": "#000000",
+    "background_color": "#000000"
+}

@@ -1,0 +1,25 @@
+{
+  "name": "deep-trust",
+  "version": "0.0.1",
+  "description": "Human to human authentication",
+  "main": "Server.js",
+  "scripts": {
+    "start": "node ./Server.js"
+  },
+  "author": "Curse",
+  "license": "MIT",
+  "dependencies": {
+    "express": "^4.21.2"
+  },
+  "devDependencies": {
+    "@eslint/js": "^8.57.1",
+    "@stylistic/eslint-plugin-js": "^1.8.1",
+    "@stylistic/eslint-plugin-plus": "^2.12.1",
+    "@stylistic/eslint-plugin-ts": "^1.8.1",
+    "@types/express": "^5.0.0",
+    "@types/node": "^22.13.4",
+    "eslint": "^8.57.1",
+    "typescript": "^5.7.2",
+    "typescript-eslint": "^7.2.0"
+  }
+}
