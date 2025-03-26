@@ -29,7 +29,6 @@ async function subscribe() {
         userVisibleOnly: true,
         applicationServerKey: "BEMJCCnH7I-zMtTMezPJpNF3CIG5S4sPvEOmMETUrsi-BZm2UWtxnACPEltgaVPOguJuhAa_PfEZ4gTQJGCiCNs"
     });
-    // console.log("Details:",details);
     fetch("/notif/subscribe", {
         method: "POST",
         headers: {
