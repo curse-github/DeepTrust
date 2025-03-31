@@ -18,13 +18,15 @@
                     "auth": "",
                     "p256dh": ""
                 }
-            }
+            },
+            "friends_list": []
         }
     ],
     "logs": [
         {
             "reason": "Test conversation",
             "time": 1742937051000,
+            "expiration": 1742937951000,
             "from": "Campbell",
             "fromSession": "9aed64b4-6c94-4e35-910a-60bf1fa4a25c",
             "fromAuthenticated": false,

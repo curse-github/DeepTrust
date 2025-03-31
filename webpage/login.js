@@ -13,3 +13,7 @@ window.addEventListener("load", () => {
     document.getElementById("email").addEventListener("keypress", keypress);
     document.getElementById("password").addEventListener("keypress", keypress);
 });
+document.addEventListener("DOMContentLoaded", () => {
+    // toggle password visibility
+    document.getElementById("toggle").addEventListener("change", async () => document.getElementById("password").type = ((document.getElementById("toggle").checked) ? "text" : "password"));
+});

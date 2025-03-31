@@ -33,7 +33,6 @@ function getTOTP(key) {
 function getHOTP(key, counter) {
     let hmacHash = hmac(base32ToBytes(key), numToBytes(counter));
     let offset = hmacHash[hmacHash.length - 1] & 0xF; // Last nibble determines offset
-    console.log("offset =", offset);
     let binary = 0;
     for (let i = 0; i < 4; i++)
         binary |= (hmacHash[offset + i] & ((i == 0) ? 0x7F : 0xFF)) << ((3 - i) * 8);

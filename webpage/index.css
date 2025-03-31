@@ -1,0 +1,86 @@
+.friends_list {
+    width: 90vw;
+    margin-left: 5vw;
+    display: flex;
+    flex-direction: column;
+}
+.friend {
+    width: 95%;
+    margin-left: 2.5%;
+    margin-top: 1rem;
+    padding-top: 1rem;
+    padding-bottom: 1rem;
+
+    display: flex;
+    flex-direction: column;
+
+    border-style: solid;
+    border-width: 1.5px;
+    border-color: gray;
+    border-radius: 0.75rem;
+
+    font-size: 1.5rem;
+}
+.friend > div {
+    width: 100%;
+    display: flex;
+    flex-direction: row;
+    justify-content: center;
+}
+.friend > div > div {
+    width: 50%;
+    display: flex;
+    flex-direction: column;
+}
+.friend > div > div > div {
+    display: flex;
+    justify-content: center;
+    align-items: center;
+}
+
+
+.dot {
+    display: inline-block;
+    min-width: 1rem;
+    width: 1rem;
+    max-width: 1rem;
+    min-height: 1rem;
+    height: 1rem;
+    max-height: 1rem;
+    border-radius: 0.5em;
+}
+.dot.red {
+    background-color: red;
+}
+.dot.green {
+    background-color: green;
+}
+
+.center_card {
+    position: absolute;
+    display: flex;
+    flex-direction: column;
+    width: 50%;
+    left: 25%;
+    min-height: 33%;
+    top: 25%;
+    justify-content: center;
+    align-items: center;
+    
+    border-style: solid;
+    border-width: 2px;
+    border-color: black;
+    border-radius: 2%;
+
+    background-color: white;
+    color: black;
+    text-align: center;
+}
+.hidden {
+    width: 0 !important;
+    height: 0 !important;
+    margin: 0 !important;
+    border-width: 0 !important;
+    padding: 0 !important;
+    overflow: hidden !important;
+}

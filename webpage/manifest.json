@@ -25,5 +25,10 @@
     "start_url": "/index.html",
     "display": "fullscreen",
     "theme_color": "#000000",
-    "background_color": "#000000"
+    "background_color": "#000000",
+    "developer": {
+        "name": "Curse",
+        "url": "https://portfolio.campbellsimpson.com"
+    },
+    "scope": "/"
 }

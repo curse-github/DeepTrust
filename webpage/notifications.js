@@ -1,4 +1,6 @@
-navigator.serviceWorker.register("/service-worker.js");
+if ("serviceWorker" in navigator) {
+    navigator.serviceWorker.register("/service-worker.js");
+}
 function arrayBufferToBase64(buffer) {
     let binary = "";
     var bytes = new Uint8Array(buffer);
@@ -19,7 +21,7 @@ function urlBase64ToUint8Array(base64String) {
     return outputArray;
 }
 
-async function subscribe() {
+async function subscribeNotif() {
     if (!("showNotification" in ServiceWorkerRegistration.prototype)) { console.log("Web push is not avaliable1."); return; }
     if (!("Notification" in window)) { console.log("Web push is not avaliable2."); return; }
     if ((await Notification.requestPermission()) != "granted") { console.log("Permission is not granted."); return; }

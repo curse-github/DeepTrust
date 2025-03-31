@@ -10,6 +10,7 @@
   "license": "MIT",
   "dependencies": {
     "express": "^4.21.2",
+    "node-fetch": "^3.3.2",
     "web-push": "^3.6.7"
   },
   "devDependencies": {
@@ -17,8 +18,9 @@
     "@stylistic/eslint-plugin-js": "^1.8.1",
     "@stylistic/eslint-plugin-plus": "^2.12.1",
     "@stylistic/eslint-plugin-ts": "^1.8.1",
-    "@types/express": "^5.0.0",
     "@types/node": "^22.13.4",
+    "@types/express": "^5.0.0",
+    "@types/node-fetch": "^2.6.12",
     "@types/web-push": "^3.6.4",
     "eslint": "^8.57.1",
     "typescript": "^5.7.2",

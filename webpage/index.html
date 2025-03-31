@@ -6,6 +6,7 @@
         <title>Index</title>
         <script src="/notifications.js"></script>
         <script src="/hashLib.js"></script>
+        <script src="/qrcode.js"></script>
         <script src="/index.js"></script>
         <link rel="icon" href="/favicon.ico">
         <link rel="manifest" href="/manifest.json">
@@ -13,8 +14,17 @@
         <link rel="stylesheet" href="index.css">
     </head>
 	<body>
-		<div id="container" class=""></div>
-		<div id="container2" class=""></div>
-		<div id="container3" class=""></div>
+        <div class="w-100p flex flex-row flex-center">
+            <input type="button" value="Logout" onclick='window.location.pathname = "/login.html"'>
+            <input type="button" value="Subscribe" onclick="subscribeNotif();">
+            <input type="button" value="Reload" onclick="window.location.reload();">
+        </div>
+		<div id="friends_list" class="friends_list"></div>
+        <img id="uploaded_file" src="">
+        <div id="center_card" class="center_card hidden">
+            <label id="qrcodeLabel" for="qrcode" class="h3 mt-3 mb-1"></label>
+            <div id="qrcode" name="qrcode" class="mt-1 mb-3"></div>
+            <input type="button" value="Close" onclick="document.getElementById('center_card').classList.add('hidden')">
+        </div>
 	</body>
 </html>
