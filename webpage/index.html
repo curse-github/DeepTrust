@@ -1,29 +1,291 @@
-<!doctype html>
-<html lang="en" data-bs-theme="dark">
-    <head>
-        <meta charset="utf-8" name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=0">
-        <meta name="apple-mobile-web-app-status-bar-style" content="default">
-        <title>Index</title>
-        <script src="/notifications.js"></script>
-        <script src="/hashLib.js"></script>
-        <script src="/index.js"></script>
-        <link rel="icon" href="/favicon.ico">
-        <link rel="manifest" href="/manifest.json">
-        <link rel="stylesheet" href="main.css">
-        <link rel="stylesheet" href="index.css">
-    </head>
-	<body>
-        <div class="w-100p flex flex-row flex-center">
-            <input type="button" value="Logout" onclick='window.location.pathname = "/login.html"'>
-            <input type="button" value="Subscribe" onclick="subscribeNotif();">
-            <input type="button" value="Reload" onclick="window.location.reload();">
+
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8" name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=0">
+    <meta name="apple-mobile-web-app-status-bar-style" content="default">
+    <title>DeepTrust – Human-First Authentication</title>
+    <link rel="icon" href="/favicon.ico">
+    <link rel="manifest" href="/manifest.json">
+    <style>
+        body { font-family: sans-serif; margin: 0; padding: 0; background: #0b0c10; color: #ffffff; line-height: 1.6; }
+        section { padding: 60px 20px; max-width: 800px; margin: auto; }
+        h1, h2 { color: #66fcf1; }
+        h1 { font-size: 3.5rem; margin-bottom: 10px; }
+        h2 { margin-top: 40px; font-size: 2rem; }
+        p { margin-bottom: 20px; }
+        .cta-button { background: #45a29e; color: #0b0c10; padding: 10px 20px; border: none; border-radius: 4px; text-decoration: none; font-weight: bold; }
+        .cta-button:hover { background: #66fcf1; color: #0b0c10; text-decoration: none; }
+        nav { background: #1f2833; padding: 10px 20px; display: flex; align-items: center; justify-content: space-between; }
+        nav .logo { display: flex; align-items: center; }
+        nav .logo img { height: 40px; margin-right: 10px; }
+        nav .logo span { font-weight: bold; font-size: 1.5rem; color: #66fcf1; }
+        nav .nav-links a { color: #c5c6c7; margin: 0 15px; text-decoration: none; font-weight: bold; }
+        nav .nav-links a:hover { color: #66fcf1; }
+    
+        .footer-image {
+                position: fixed;
+                bottom: 0;
+                left: 0;
+                width: 100vw;
+                height: 100vh;
+                background-color: black;
+                background-image: url('deeptrust-transition-wide.png');
+                background-size: auto 100vh;
+                background-position: center;
+                opacity: 0;
+                pointer-events: none;
+                transition: opacity 1s ease;
+                z-index: 0;
+        }
+        .footer-image.visible {
+                opacity: 1;
+        }
+
+		footer { position: relative; z-index: 10; }
+
+        @media (max-width: 768px) {
+            .nav-links {
+                display: none;
+            }
+        }
+
+        a {
+            color: #66fcf1;
+        }
+        a:visited {
+            color: #45a29e;
+        }
+        a:hover, a:focus {
+            color: #ffffff;
+            text-decoration: underline;
+        }
+</style>
+</head>
+<body>
+    <nav>
+        <div class="logo">
+            <img src="deeptrust-logo.png" alt="DeepTrust Logo" onerror="this.style.display='none'"/>
+            <span>DeepTrust</span>
         </div>
-		<div id="friends_list" class="friends_list"></div>
-        <img id="uploaded_file" src="">
-        <div id="center_card" class="center_card hidden">
-            <label id="qrcodeLabel" for="qrcode" class="h3 mt-3 mb-1"></label>
-            <div id="qrcode" name="qrcode" class="mt-1 mb-3"></div>
-            <input type="button" value="Close" onclick="document.getElementById('center_card').classList.add('hidden')">
+        <div class="nav-links">
+            <a href="#shift">The Shift</a>
+            <a href="#what">What We Do</a>
+            <a href="#how">How It Works</a>
+            <a href="#invest">Investors</a>
         </div>
-	</body>
+    </nav>
+
+    <section>
+		<button id="install" class="cta-button" style="display: none">Install now</button>
+        <h1>Trust used to be a given.</h1>
+        <p>Now it's a question. <strong>DeepTrust is the answer.</strong></p>
+        <p>The first human-first authentication platform. Because seeing isn’t believing anymore.</p>
+        <a href="#invest" class="cta-button">Investor Info ↓</a>
+    </section>
+
+    <section id="shift">
+        <h2>The Shift</h2>
+        <p><strong>Until now,</strong> there wasn’t a person-to-person authentication tool.<br>
+        <strong>Until now,</strong> there wasn’t a need.<br>
+        That just changed.</p>
+        <p>AI erased the line between real and fake. <strong>DeepTrust puts it back.</strong></p>
+    </section>
+
+    <section id="what">
+        <h2>What DeepTrust Does</h2>
+        <p><strong>Human-first authentication. Finally.</strong></p>
+        <ul>
+            <li>Verify a person, not a device</li>
+            <li>Share cryptographic trust directly</li>
+            <li>Works offline or online</li>
+            <li>Revoke anytime</li>
+            <li>Use it once, or forever</li>
+        </ul>
+    </section>
+
+    <section id="how">
+        <h2>How It Works</h2>
+        <ul>
+            <li>🔐 Scan, speak, or share a secure key</li>
+            <li>🧠 Log and remember trusted connections</li>
+            <li>🚫 Revoke or reset trust anytime</li>
+            <li>📴 Works offline when needed</li>
+            <li>🛠️ Manual validation tools for critical moments</li>
+        </ul>
+    </section>
+
+    <section id="invest">
+        <h2>For Investors</h2>
+        <p><strong>AI is changing everything—faster than anyone expected.</strong></p>
+        <p>Within months, synthetic people will flood our inboxes, Zoom calls, and DMs.<br>
+        But there’s still no way to know who's real. That’s not just a risk. <em>It’s a market.</em></p>
+        <p><strong>DeepTrust is your first-mover opportunity to:</strong></p>
+        <ul>
+            <li>Define a new category of human-first security</li>
+            <li>Shape public policy and business standards</li>
+            <li>License a foundational protocol across industries</li>
+            <li>Build the trust layer of the 21st century</li>
+        </ul>
+        <p><strong>We're not selling hype. We're building what comes after passwords.</strong></p>
+        <p>📩 <a href="mailto:bobby@deeptrust.app">Contact the Founders</a><br>
+            🧬 <a href="investorBrief.pdf.pdf">Download the Investor Brief (PDF)</a></p>
+    </section>
+
+    <section>
+        <h2>Join Us</h2>
+        <p>This is the new reality. Don’t face it alone.</p>
+        <a href="#" class="cta-button">Join Waitlist</a>
+        <a href="#" class="cta-button">Partner with Us</a>
+    </section>
+
+<section id="faq">
+    <h2 style="text-align:center; font-size: 2rem; color: #66fcf1;">🔐 Frequently Asked Questions (FAQ)</h2>
+    <style>
+        details { background: #1f2833; border-radius: 6px; padding: 10px 15px; margin: 15px 0; }
+        summary { font-weight: bold; font-size: 1.1rem; cursor: pointer; color: #66fcf1; }
+        details[open] summary::after { content: " ▲"; }
+        summary::after { content: " ▼"; float: right; }
+        details p, li { color: #ffffff; }
+    
+        .footer-image {
+                position: fixed;
+                bottom: 0;
+                left: 0;
+                width: 100vw;
+                height: 100vh;
+                background-color: black;
+                background-image: url('deeptrust-transition-wide.png');
+                background-size: auto 100vh;
+                background-position: center;
+                opacity: 0;
+                pointer-events: none;
+                transition: opacity 1s ease;
+                z-index: 0;
+        }
+        .footer-image.visible {
+                opacity: 1;
+        }
+
+		footer { position: relative; z-index: 10; }
+
+        @media (max-width: 768px) {
+            .nav-links {
+                display: none;
+            }
+        }
+
+        a {
+            color: #66fcf1;
+        }
+        a:visited {
+            color: #45a29e;
+        }
+        a:hover, a:focus {
+            color: #ffffff;
+            text-decoration: underline;
+        }
+</style>
+    <div>
+        <details><summary>💡 What is the benefit of a manual key exchange?</summary>
+            <p>Manual key exchange — like scanning a QR code in person or verifying a code over a call — brings <strong>humans back into the loop</strong>. It allows people to:</p>
+            <ul>
+                <li>Personally verify identity (face, voice, presence)</li>
+                <li>Start a secure relationship without relying on central servers</li>
+                <li>Feel confident that their connection wasn't intercepted or spoofed</li>
+            </ul>
+            <p>DeepTrust builds a cryptographic layer on top of this <strong>gold standard</strong> to extend that trust into the digital world.</p>
+        </details>
+
+        <details><summary>🔐 Why does DeepTrust use two separate sets of keys for every relationship?</summary>
+            <p>Each relationship has <strong>two asymmetric key pairs</strong> — one per direction. This means:</p>
+            <ul>
+                <li>You can revoke or rotate trust from one direction without breaking the other</li>
+                <li>Each party controls what they share and with whom</li>
+                <li>Authentication is directional, not assumed to be mutual</li>
+            </ul>
+        </details>
+
+        <details><summary>🕒 Why does DeepTrust use two TOTP secrets per relationship?</summary>
+            <p>Each user generates a unique <strong>TOTP secret</strong> for the other person. This allows:</p>
+            <ul>
+                <li>Independent verification by each party</li>
+                <li>Explicit mutual authentication — never assumed</li>
+                <li>Resilience: if one secret is compromised, the other remains secure</li>
+            </ul>
+        </details>
+
+        <details><summary>🚀 Is DeepTrust working on automated key exchange?</summary>
+            <p><em>(Patent pending)</em></p>
+            <p>Yes — and it's a <strong>game-changer</strong>. We're developing tech to:</p>
+            <ul>
+                <li>Automatically perform asymmetric key exchange</li>
+                <li>Maintain end-to-end encryption</li>
+                <li>Allow verification of relationships without exposing private keys</li>
+            </ul>
+        </details>
+
+        <details><summary>🤖 What if someone’s device is offline?</summary>
+            <p>DeepTrust works <strong>even without server access</strong>. In offline mode:</p>
+            <ul>
+                <li>Users exchange and verify codes manually</li>
+                <li>Validation logs are stored locally</li>
+                <li>Logs are uploaded later to reconstruct trust history</li>
+            </ul>
+        </details>
+
+        <details><summary>🔁 Can I revoke a relationship?</summary>
+            <p>Yes. DeepTrust supports:</p>
+            <ul>
+                <li>One-directional or full trust revocation</li>
+                <li>Secret rotation on demand</li>
+                <li>Time-based expiration of trust relationships</li>
+            </ul>
+        </details>
+
+        <details><summary>🧩 How can developers or companies use DeepTrust?</summary>
+            <p>We offer an <strong>API-first platform</strong> with a <strong>zero-knowledge design</strong> and:</p>
+            <ul>
+                <li>Identity-aware workflow support</li>
+                <li>Secure integration into authentication, HR, and compliance systems</li>
+                <li>Modular trust services for web, mobile, and embedded applications</li>
+            </ul>
+        </details>
+    </div>
+</section>
+
+
+<footer style="text-align: center; font-size: 0.9rem; color: #c5c6c7; padding: 2rem 1rem;">
+    <div style="height: 250px;"></div>
+    &copy; 2025 DT Labs Inc. All rights reserved.<br>
+    “DeepTrust” is a trademark of DT Labs Inc.
+</footer>
+<div class="footer-image" id="footerImage"></div>
+
+<script>
+	const footerImage = document.getElementById('footerImage');
+	window.addEventListener('scroll', () => {
+		const scrollTop = window.scrollY;
+		const scrollHeight = document.body.scrollHeight - window.innerHeight;
+		const scrollRatio = scrollTop / scrollHeight;
+		footerImage.classList.toggle('visible', scrollRatio > 0.97);
+	});
+
+	let installPrompt = null;
+	const installButton = document.getElementById("install");
+	window.addEventListener("beforeinstallprompt", (event) => {
+		event.preventDefault();
+		installPrompt = event;
+		installButton.style.display = "block";
+	});
+	installButton.addEventListener("click", async () => {
+		const result = await installPrompt.prompt();
+	});
+	window.addEventListener("appinstalled", () => {
+		window.location.pathname = "/pwa.html";
+	});
+</script>
+
+</body>
+
 </html>

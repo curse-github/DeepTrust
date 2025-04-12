@@ -1,0 +1,23 @@
+<!doctype html>
+<html lang="en" data-bs-theme="dark">
+    <head>
+        <meta charset="utf-8" name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=0">
+        <meta name="apple-mobile-web-app-status-bar-style" content="default">
+        <title>DeepTrust</title>
+        <script src="/notifications.js"></script>
+        <script src="/hashLib.js"></script>
+        <script src="/pwa.js"></script>
+        <link rel="icon" href="/favicon.ico">
+        <link rel="manifest" href="/manifest.json">
+        <link rel="stylesheet" href="main.css">
+        <link rel="stylesheet" href="pwa.css">
+    </head>
+	<body>
+        <div class="w-100p flex flex-row flex-center">
+            <input type="button" value="Logout" onclick='window.location.pathname = "/login.html"'>
+            <input type="button" value="Subscribe" onclick="subscribeNotif();">
+            <input type="button" value="Reload" onclick="window.location.reload();">
+        </div>
+		<div id="friends_list" class="friends_list"></div>
+	</body>
+</html>

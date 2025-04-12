@@ -4,10 +4,8 @@ import { Application, Request, Response } from "express";
 import { getCookies, generateUUID, sha256, readConfig, config } from "./Lib";
 import { readFileSync, writeFileSync } from "fs";
 import * as webpush from "web-push";
-import fetch from "node-fetch";
 
 // #region types
-type sessionMap = {[id: string]: sessionType};
 type sessionType = {
     username: string,
     expiration: number,
@@ -40,13 +38,13 @@ type logType = {
     expiration: number,
     // from
     from: userType["username"],
-    fromSession: keyof sessionMap,
+    fromSession: string,
     fromAuthenticated: boolean,
     fromIp: sessionType["ip"],
     fromPlatform: sessionType["platform"],
     // to 
     to: userType["username"],
-    toSession: keyof sessionMap,
+    toSession: string,
     toAuthenticated: boolean,
     toIp: sessionType["ip"],
     toPlatform: sessionType["platform"]
@@ -54,27 +52,34 @@ type logType = {
 // #endregion types
 
 // #region reading database and config
-var dbFilePath: string = __dirname + "/database.json";
+const dbFilePath: string = __dirname + "/database.json";
 const db: any = JSON.parse(readFileSync(dbFilePath).toString() || "{}");
 // sessions
-var sessions: sessionMap = db.sessions || {};
-let sessionIdToUsername: {[id: string]: string} = {};
+let sessions: {[id: string]: sessionType} = db.sessions || {};
+let sessionEntries: [ string, sessionType ][] = Object.entries(sessions);
 let usernameToSessionId: {[id: string]: string} = {};
-const sessionIds: string[] = Object.keys(sessions);
-for (let i = 0; i < sessionIds.length; i++) {
-    const id: string = sessionIds[i];
+Object.keys(sessions).forEach((id: string) => {
     const username: string = sessions[id].username;
-    sessionIdToUsername[id] = username;
     usernameToSessionId[username] = id;
-}
+});
 function validateSession(req: Request, res: Response): boolean {
     const cookies: {[key: string]: string} = getCookies(req);
     const sessionId: string = cookies[sessionIdCookieName];
     if (sessionId == undefined) return false;
-    if (sessions[sessionId] != undefined) return true;
-    res.clearCookie(sessionIdCookieName);
-    // console.log("invalid token, ", cookies[sessionIdCookieName]);
-    return false;
+    const session: sessionType = sessions[sessionId];
+    if (session == undefined) { res.clearCookie(sessionIdCookieName); return false; }
+    /* const platform: string = ((req.headers["sec-ch-ua-platform"] as string|undefined) || "none");
+    if (session.platform != platform) {
+        console.log(session.platform + " != " + platform); res.clearCookie(sessionIdCookieName);
+        return false;
+    } */
+    if (!session.active) {
+        sessions[sessionId].active = true;
+        sessionEntries = Object.entries(sessions);
+        saveDb();
+    }
+    pingTimes[sessionId] = (new Date()).getTime();
+    return true;
 }
 // users
 var users: userType[] = db.users || [];
@@ -103,7 +108,7 @@ const AUTHENTICATION_LENGTH: number = Number(config.authentication.length);
 const publicKey: string = readFileSync("public-key.txt").toString();
 const privateKey: string = readFileSync("private-key.txt").toString();
 webpush.setVapidDetails("mailto:curse@simpsoncentral.com", publicKey, privateKey);
-function pushUser(session: sessionType, data: any) {
+function pushUser(session: sessionType, data: any): Promise<boolean> {
     return new Promise((resolve) => {
         if (session == undefined) { console.log("User not found."); return; }
         if (session.endpoint == undefined) { console.log("User has not subbed to notifications."); return; }
@@ -121,12 +126,16 @@ function pushUser(session: sessionType, data: any) {
                 resolve(true);
             })
             .catch((error: any) => {
+                console.log("push failed for " + session.username);
                 resolve(false);
             });
     });
 }
-function notifyUser(session: sessionType, header: string, body: string) {
-    pushUser(session, { type: "notification", data: { header, body } });
+async function reloadUser(session: sessionType): Promise<boolean> {
+    return await pushUser(session, { type: "reload" });
+}
+async function notifyUser(session: sessionType, header: string, body: string): Promise<boolean> {
+    return await pushUser(session, { type: "notification", data: { header, body } });
 }
 // #endregion
 
@@ -170,10 +179,13 @@ serverStaticSimple("create.js");
 serverStaticSimple("manifest.json");
 serverStaticSimple("favicon.ico");
 serverStaticSimple("favicon.png");
+serverStaticSimple("deeptrust-logo.png");
 serverStaticSimple("hashLib.js");
-serveStaticAuthedSimple("index.html", true);
-serveStaticAuthedSimple("index.css", false);
-serveStaticAuthedSimple("index.js", false);
+serverStaticSimple("index.html");
+serverStaticSimple("investorBrief.pdf");
+serveStaticAuthedSimple("pwa.html", true);
+serveStaticAuthedSimple("pwa.css", false);
+serveStaticAuthedSimple("pwa.js", false);
 serveStaticAuthedSimple("notifications.js", false);
 serveStaticAuthedSimple("service-worker.js", false);
 // #endregion express setup
@@ -186,9 +198,9 @@ app.get("/login.html", async (req: Request, res: Response) => {
     if (id != undefined) {
         res.clearCookie(sessionIdCookieName);
         if (sessions[id] != undefined) {
-            delete usernameToSessionId[sessionIdToUsername[id]];
-            delete sessionIdToUsername[id];
+            delete usernameToSessionId[sessions[id].username];
             delete sessions[id];
+            sessionEntries = Object.entries(sessions);
             saveDb();
         }
     }
@@ -216,12 +228,10 @@ app.get("/tryLogin", async (req: Request, res: Response) => {
     const oldSessionId: string|undefined = usernameToSessionId[user.username];
     if (oldSessionId != undefined) {
         delete usernameToSessionId[user.username];
-        delete sessionIdToUsername[oldSessionId];
         delete sessions[oldSessionId];
     }
     // create a session
     const sessionId = generateUUID();
-    sessionIdToUsername[sessionId] = user.username;
     usernameToSessionId[user.username] = sessionId;
     sessions[sessionId] = {
         username: user.username,
@@ -233,9 +243,10 @@ app.get("/tryLogin", async (req: Request, res: Response) => {
         p256dh: undefined,
         active: true
     };
+    sessionEntries = Object.entries(sessions);
     saveDb();
     res.cookie(sessionIdCookieName, sessionId, { maxAge: SESSION_LENGTH, httpOnly: false });
-    res.redirect("/index.html");
+    res.redirect("/pwa.html");
 });
 app.get("/create.html", async (req: Request, res: Response) => {
     // clear cookie if there is one, and clear thei session data if session id was valid
@@ -244,9 +255,9 @@ app.get("/create.html", async (req: Request, res: Response) => {
     if (id != undefined) {
         res.clearCookie(sessionIdCookieName);
         if (sessions[id] != undefined) {
-            delete usernameToSessionId[sessionIdToUsername[id]];
-            delete sessionIdToUsername[id];
+            delete usernameToSessionId[sessions[id].username];
             delete sessions[id];
+            sessionEntries = Object.entries(sessions);
         }
     }
     res.sendFile(__dirname + "\\webpage\\create.html", (err: Error) => {
@@ -304,7 +315,7 @@ app.get("/getUserData", async (req: Request, res: Response) => {
             (log.expiration > time) && ((log.from == username) || (log.to == username))
         ) { activeLogs.push(log); }
     }
-    res.json({ name: username, friends_list: user.friends_list, logs: activeLogs });
+    res.json({ name: username, friends_list: user.friends_list, logs: activeLogs, online: true });
 });
 app.post("/addFriend", async (req: Request, res: Response) => {
     if (!validateSession(req, res)) {
@@ -400,7 +411,7 @@ app.post("/auth_start", async (req: Request, res: Response) => {
         if (log.to !== authToUsername) continue;// log isnt for the intended users
         if (log.expiration <= time) continue;// log has expired
         // found log for those users already opened
-        pushUser(fromSession, { type: "reload" });
+        reloadUser(fromSession);
         res.json(false);
         return;
     }
@@ -423,9 +434,8 @@ app.post("/auth_start", async (req: Request, res: Response) => {
     });
     saveDb();
     res.json(true);
-    pushUser(fromSession, { type: "reload" });
-    const authToSessionId: string = usernameToSessionId[authToUsername];
-    pushUser(sessions[authToSessionId], { type: "reload" });
+    reloadUser(fromSession);
+    reloadUser(sessions[usernameToSessionId[authToUsername]]);// tell "to" user to reload
 });
 app.post("/auth_from_user", async (req: Request, res: Response) => {
     if (!validateSession(req, res)) {
@@ -451,7 +461,7 @@ app.post("/auth_from_user", async (req: Request, res: Response) => {
         if (log.from !== authFromUsername) continue;// log isnt for the intended users
         if (log.to !== authToUsername) continue;// log isnt for the intended users
         if (log.expiration <= time) continue;// log has expired
-        if (log.state !== 0) { res.json(false); return; }
+        if (log.state !== 0) break;// log is in the wrong state
         // update log
         logs[i].state = 1;
         logs[i].fromAuthenticated = true;
@@ -460,11 +470,12 @@ app.post("/auth_from_user", async (req: Request, res: Response) => {
         logs[i].toPlatform = toSession.platform;
         saveDb();
         res.json(true);
-        const authFromSessionId: string = usernameToSessionId[authFromUsername];
-        pushUser(sessions[authFromSessionId], { type: "reload" });
-        pushUser(toSession, { type: "reload" });
+        reloadUser(sessions[usernameToSessionId[authFromUsername]]);// tell "from" user to reload
+        reloadUser(toSession);
         return;
     }
+    // it failed for some reason
+    reloadUser(toSession);
     res.json(false);
 });
 app.post("/auth_to_user", async (req: Request, res: Response) => {
@@ -491,16 +502,16 @@ app.post("/auth_to_user", async (req: Request, res: Response) => {
         if (log.from !== authFromUsername) continue;// log isnt for the intended users
         if (log.to !== authToUsername) continue;// log isnt for the intended users
         if (log.expiration <= time) continue;// log has expired
-        if (log.state !== 1) { res.json(false); return; }
+        if (log.state !== 1) break;// log is in the wrong state
         logs[i].state = 2;
         logs[i].toAuthenticated = true;
         saveDb();
         res.json(true);
-        pushUser(fromSession, { type: "reload" });
-        const authToSessionId: string = usernameToSessionId[authToUsername];
-        pushUser(sessions[authToSessionId], { type: "reload" });
+        reloadUser(fromSession);
+        reloadUser(sessions[usernameToSessionId[authToUsername]]);// tell "to" user to reload
         return;
     }
+    reloadUser(fromSession);
     res.json(false);
 });
 app.post("/auth_end", async (req: Request, res: Response) => {
@@ -529,19 +540,27 @@ app.post("/auth_end", async (req: Request, res: Response) => {
             || ((log.from === withUsername) && (log.to === username))
         )) continue;
         if (log.expiration <= time) continue;// log has expired
-        if (log.state !== 2) { res.json(false); return; }
+        if (log.state !== 2) break;// log is in the wrong state
         logs[i].expiration = time;
         saveDb();
         res.json(true);
-        pushUser(session, { type: "reload" });
-        const withSessionId: string = usernameToSessionId[withUsername];
-        pushUser(sessions[withSessionId], { type: "reload" });
+        reloadUser(session);
+        reloadUser(sessions[usernameToSessionId[withUsername]]);// tell "with" user to reload
         return;
     }
+    reloadUser(session);
     res.json(false);
 });
 // #endregion auth functions
 
+app.post("/ping", async (req: Request, res: Response) => {
+    if (!validateSession(req, res)) {
+        console.log("pong failed to validate");
+        res.status(401).send("");
+        return;
+    }
+    res.json(true);
+});
 app.post("/notif/subscribe", (async (req: Request, res: Response) => {
     if (!validateSession(req, res)) {
         res.status(401).send("<html><head><title>Unauthorized</title></head><body>Unauthorized</body></html>");
@@ -563,15 +582,35 @@ app.post("/notif/subscribe", (async (req: Request, res: Response) => {
     sessions[sessionId].endpoint = endpoint;
     sessions[sessionId].auth = keys.auth;
     sessions[sessionId].p256dh = keys.p256dh;
+    sessionEntries = Object.entries(sessions);
     saveDb();
 }).bind(this));
 
 app.get("*", (req: Request, res: Response) => {
     res.redirect("/index.html");
 });
+let pingTimes: {[id: string]: number} = {};
+async function ping() {
+    const time: number = (new Date()).getTime();
+    let changed: boolean = false;
+    for (let i = 0; i < sessionEntries.length; i++) {
+        const [ id, session ]: [ string, sessionType ] = sessionEntries[i];
+        if (session.active) {
+            if ((time - pingTimes[id]) > 3000) {
+                changed = true;
+                sessions[id].active = false;
+            }
+        }
+    }
+    if (changed) {
+        sessionEntries = Object.entries(sessions);
+        saveDb();
+    }
+}
 server.listen(port, function() {
     console.clear();
     console.log("Server started.");
     console.log("Https server on https://deeptrust.me.");
     console.log("Http server on http://localhost:" + port + ".");
+    setInterval(ping, 1500);
 });

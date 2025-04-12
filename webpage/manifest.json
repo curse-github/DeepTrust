@@ -22,7 +22,7 @@
             "form_factor":"narrow"
         }
     ],
-    "start_url": "/index.html",
+    "start_url": "/pwa.html",
     "display": "fullscreen",
     "theme_color": "#000000",
     "background_color": "#000000",
