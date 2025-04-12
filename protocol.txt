@@ -1,0 +1,47 @@
+all of these things happen over https, along-side our precautions
+
+making accounts and settings up: 
+    userA makes account, passwords are only send to the server in sha256 form
+    userB makes account, passwords are only send to the server in sha256 form
+    userA friends userB
+    userB friends userA
+
+transfering userB's key for userA from userB to userA:
+    userA generates new public and private keys
+    userA requests userB's TOTP key for them from the server, supplying the public key they just generated
+    the server requests userB's TOTP key, supplying userA's public key
+    userB creates a new TOTP key for userA
+    userB encrypts their TOTP key for userA with userA's public key and sends it to the server
+    the server sends userA userB's TOTP key for them encrypted with their public key
+    userA decrypts their TOTP key from userB using their private key
+
+transfering userA's key for userB from userA to userB:
+    userB generates new public and private keys
+    userB requests userA's TOTP key for them from the server, supplying the public key they just generated
+    the server requests userA's TOTP key, supplying userB's public key
+    userA creates a new TOTP key for userB
+    userA encrypts their TOTP key for userB with userB's public key and sends it to the server
+    the server sends userB userA's TOTP key for them encrypted with their public key
+    userB decrypts their TOTP key from userA using their private key
+
+completing an authentication:
+    userA tells server to begin an authentication with userB
+    server creates log with information about userA, the current time, and an tentative ending time of 5 minutes later
+    server updates both userA and userB with the current state of the log
+    userA gives their 6-digit TOTP code to userB over phone or video call
+    userB enters the code from userA
+    assuming code was matched with the expected code from the key userB has from userA,
+        userB tells server that userA is authenticated
+    server updates log with information about userB and states that userA is authenticated
+    server updates both userA and userB with the current state of the log
+    userB give their 6-digit TOTP code to userA over phone or video call
+    userA enters the code from userB
+    assuming code was matched with the expected code from the key userA has from userB,
+        userA tells server that userB is authenticated
+    server updates log stating that userB is authenticated
+// both users are now authenticated for 5 minutes
+
+further actions:
+    both users have option to end the current authentication,
+        in which case the server updates the log setting the ending time to the current time
+    possible option to extend time

@@ -54,6 +54,10 @@ async function postJSON(path, data) {
 // #endregion fetch stuff
 
 // #region key stuff
+async function getHasKeyFrom(username) {
+    if (!swReady) return false;
+    return await getJSON("/has_key_from_" + username);
+}
 async function getHasKeyFor(username) {
     if (!swReady) return false;
     return await getJSON("/has_key_for_" + username);
@@ -64,61 +68,25 @@ async function getCodeFor(username) {
         return getTOTP((await getJSON("/key_for_" + username)).key);
     else return undefined;
 }
-async function generateKeyFor(username) {
-    if (!swReady) return false;
-    if (await getHasKeyFor(username)) return false;
-    await getJSON("/generate_key_for_" + username);
-    return true;
-}
-async function getHasKeyFrom(username) {
-    if (!swReady) return false;
-    return await getJSON("/has_key_from_" + username);
-}
 async function validateCodeFrom(username) {
     const el = document.getElementById("code_from_" + username);
     const code = el.value;
     if (
-        !swReady
-        || ((typeof code) != "string")
-        || (code.length != 6)
-        || !checkTotp((await getJSON("/key_from_" + username)).key, code)
+        !swReady || (code.length != 6) || !checkTotp((await getJSON("/key_from_" + username)).key, code)
     ) {
         el.style.color = "red";
+        return false;
     } else {
         el.style.color = "green";
+        return true;
     }
 }
-async function setKeyFrom(username, key) {
-    if (!swReady) return false;
-    await getJSON("/set_key_from_" + username + "?key=" + key);
-    return true;
+async function clearKeysWith(username) {
+    const output = await getJSON("/clear_keys_with_" + username);
+    if (output)
+        window.location.reload();
 }
 // #endregion key stuff
-
-// #region qr code stuff
-let qrcode = undefined;
-async function makeQrCodeFor(username) {
-    const secret = (await getJSON("/key_for_" + username)).key;
-    const el = document.getElementById("qrcode");
-    // https://github.com/davidshimjs/qrcodejs
-    const URI = "webapp://deeptrust.me/set_key_from_" + myUsername + "?key=" + secret;
-    if (qrcode == undefined) {
-        qrcode = new QRCode(el, {
-            text: URI,
-            width: 128,
-            height: 128,
-            colorDark: "#000000",
-            colorLight: "#ffffff",
-            correctLevel: QRCode.CorrectLevel.H
-        });
-    } else {
-        qrcode.clear();
-        qrcode.makeCode(URI);
-    }
-    document.getElementById("center_card").classList.remove("hidden");
-    document.getElementById("qrcodeLabel").innerText = "Only give this code to " + username + ".";
-}
-// #endregion qr code stuff
 
 async function attemptAddFriend() {
     const email = document.getElementById("addFriendEmail").value;
@@ -132,68 +100,63 @@ async function attemptAddFriend() {
 async function requestKeyFrom(username) {
     await postJSON("/req_key_from", { from: username });
 }
-async function clearKeys() {
-    const output = await getJSON("/clear_keys");
-    if (output) {
-        window.location.reload();
-    }
+
+// #region authentication functions
+async function authStart(username) {
+    await postJSON("/auth_start", { to: username });
 }
+async function authFromUser(username) {
+    await postJSON("/auth_from_user", { from: username });
+}
+async function authToUser(username) {
+    await postJSON("/auth_to_user", { to: username });
+}
+async function authEnd(username) {
+    await postJSON("/auth_end", { with: username });
+}
+// #endregion authentication functions
+
 let myUsername = "";
 onSwReady(async () => {
     const data = await getJSON("/getUserData");
     if (data == undefined) throw new Error("");
     const { friends_list, logs } = data;
     myUsername = data.name;
-    const hasKeysFor = Object.fromEntries((await Promise.all(friends_list.map((name) => getHasKeyFor(name)))).map((hasKey, i) => [ friends_list[i], hasKey ]));
-    const hasKeysFrom = Object.fromEntries((await Promise.all(friends_list.map((name) => getHasKeyFrom(name)))).map((hasKey, i) => [ friends_list[i], hasKey ]));
+    console.log(logs);
+    let logMap = {};
+    for (let i = 0; i < logs.length; i++) {
+        const log = logs[i];
+        if (log.from == myUsername) logMap[log.to] = [ 0, log.state ];
+        else logMap[log.from] = [ 1, log.state ];
+    }
+    const hasKeysFor = Object.fromEntries((await Promise.all(friends_list.map((username) => getHasKeyFor(username)))).map((hasKey, i) => [ friends_list[i], hasKey ]));
+    const hasKeysFrom = Object.fromEntries((await Promise.all(friends_list.map((username) => getHasKeyFrom(username)))).map((hasKey, i) => [ friends_list[i], hasKey ]));
     const friends_list_element = document.getElementById("friends_list");
-    friends_list.forEach(async (name) => {
+    friends_list.forEach(async (username) => {
         const friend = document.createElement("div");
         friend.className = "friend";
         const nameEl = document.createElement("div");
         nameEl.style.fontWeight = "bold";
-        nameEl.innerText = name;
+        nameEl.innerText = username;
         friend.appendChild(nameEl);
         const center = document.createElement("div");
         {
             const centerLeft = document.createElement("div");
             {
                 const centerLeftStatus = document.createElement("div");
-                centerLeftStatus.innerHTML = "Key for: <div class=\"dot " + (hasKeysFor[name] ? "green" : "red") + "\"></div>";
+                centerLeftStatus.innerHTML = "Key for: <div class=\"dot " + (hasKeysFor[username] ? "green" : "red") + "\"></div>";
                 centerLeft.appendChild(centerLeftStatus);
-                if (hasKeysFor[name] && hasKeysFrom[name]) {
-                    const centerLeftCode = document.createElement("div");
-                    centerLeftCode.innerHTML = "<input id=\"code_for_" + name + "\" style=\"width: 6rem; text-align:center; border-color: black; color: black;\" disabled></input>";
-                    centerLeft.appendChild(centerLeftCode);
-                    getCodeFor(name).then((code) => {
-                        const el = document.getElementById("code_for_" + name);
-                        const time_left = Math.round((oneTimeDuration - ((new Date()).getTime() % oneTimeDuration)) / 1000);
-                        el.value = code + ", " + time_left;
-                        if (time_left <= 5)
-                            el.style.color = "red";
-                        else
-                            el.style.color = "black";
-                    });
-                } else if (!hasKeysFor[name]) {
-                    const centerLeftSet = document.createElement("div");
-                    centerLeftSet.innerHTML = "<input type=\"button\" value=\"Generate Key\" onclick='generateKeyFor(\"" + name + "\");window.location.reload();'>";
-                    centerLeft.appendChild(centerLeftSet);
-                }
             }
             center.appendChild(centerLeft);
 
             const centerRight = document.createElement("div");
             {
                 const centerRightStatus = document.createElement("div");
-                centerRightStatus.innerHTML = "Key from: <div class=\"dot " + (hasKeysFrom[name] ? "green" : "red") + "\"></div>";
+                centerRightStatus.innerHTML = "Key from: <div class=\"dot " + (hasKeysFrom[username] ? "green" : "red") + "\"></div>";
                 centerRight.appendChild(centerRightStatus);
-                if (hasKeysFrom[name]) {
-                    const centerRightCodeInput = document.createElement("div");
-                    centerRightCodeInput.innerHTML = "<input type=\"text\" id=\"code_from_" + name + "\" placeholder=\"Enter " + name + "'s code.\" onchange='validateCodeFrom(\"" + name + "\")'></input>";
-                    centerRight.appendChild(centerRightCodeInput);
-                } else {
+                if (!hasKeysFrom[username]) {
                     const centerRightSet = document.createElement("div");
-                    centerRightSet.innerHTML = "<input type=\"button\" value=\"Request Key\" onclick='requestKeyFrom(\"" + name + "\")'>";
+                    centerRightSet.innerHTML = "<input type=\"button\" value=\"Request Key\" onclick='requestKeyFrom(\"" + username + "\")'>";
                     centerRight.appendChild(centerRightSet);
                 }
             }
@@ -201,12 +164,44 @@ onSwReady(async () => {
         }
         friend.appendChild(center);
 
-        if (hasKeysFrom[name] || hasKeysFor[name]) {
-            const bottom = document.createElement("div");
-            bottom.innerHTML = "<input type=\"button\" " + " value=\"Clear\" onclick='clearKeys()'>";
-            friend.appendChild(bottom);
+        if (hasKeysFrom[username] || hasKeysFor[username]) {
+            const bottom1 = document.createElement("div");
+            bottom1.innerHTML = "<input type=\"button\" " + " value=\"Clear\" onclick='clearKeysWith(\"" + username + "\")'>";
+            friend.appendChild(bottom1);
         }
-
+        if (hasKeysFrom[username] && hasKeysFor[username]) {
+            const test = logMap[username];
+            if (test == undefined) {
+                const bottom2 = document.createElement("div");
+                bottom2.innerHTML = "<input type=\"button\" " + " value=\"Start auth\" onclick='authStart(\"" + username + "\")'>";
+                friend.appendChild(bottom2);
+            } else if (((test[0] == 0) && (test[1] == 0)) || ((test[0] == 1) && (test[1] == 1))) {
+                // text showing code for other user
+                const bottom2 = document.createElement("div");
+                getCodeFor(username).then((code) => {
+                    const el = document.getElementById("code_for_" + username);
+                    el.innerText = code;
+                    const time_left = Math.round((oneTimeDuration - ((new Date()).getTime() % oneTimeDuration)) / 1000);
+                    el.style.color = (time_left <= 5) ? "red" : "black";
+                });
+                bottom2.innerHTML = "<div id='code_for_" + username + "' class='flex flex-center'></div>";
+                friend.appendChild(bottom2);
+            } else if ((test[0] == 1) && (test[1] == 0)) { // auth_from_user
+                // input for other users code
+                const bottom2 = document.createElement("div");
+                bottom2.innerHTML = "<input type=\"text\" " + " id='code_from_" + username + "' placeholder=\"Code from " + username + "\" oninput='validateCodeFrom(\"" + username + "\").then((valid) => { if (valid) authFromUser(\"" + username + "\"); });'>";
+                friend.appendChild(bottom2);
+            } else if ((test[0] == 0) && (test[1] == 1)) { // auth_to_user
+                // input for other users code
+                const bottom2 = document.createElement("div");
+                bottom2.innerHTML = "<input type=\"text\" " + " id='code_from_" + username + "' placeholder=\"Code from " + username + "\" oninput='validateCodeFrom(\"" + username + "\").then((valid) => { if (valid) authToUser(\"" + username + "\"); });'>";
+                friend.appendChild(bottom2);
+            } else if (test[1] == 2) {
+                const bottom2 = document.createElement("div");
+                bottom2.innerHTML = "<input type=\"button\" " + " value=\"End auth\" onclick='authEnd(\"" + username + "\")'>";
+                friend.appendChild(bottom2);
+            }
+        }
         friends_list_element.appendChild(friend);
     });
     const addFriend = document.createElement("div");
@@ -222,22 +217,17 @@ onSwReady(async () => {
     bottom.innerHTML = "<input type=\"button\" value=\"Add\" onclick=\"attemptAddFriend()\">";
     addFriend.appendChild(bottom);
     friends_list_element.appendChild(addFriend);
-
-    setInterval(() => {
-        friends_list.forEach(async (name) => {
-            if (hasKeysFor[name] && hasKeysFrom[name]) {
-                validateCodeFrom(name);
-                getCodeFor(name).then((code) => {
-                    const el = document.getElementById("code_for_" + name);
-                    const time_left = Math.round((oneTimeDuration - ((new Date()).getTime() % oneTimeDuration)) / 1000);
-                    el.value = code + ", " + time_left;
-                    if (time_left <= 5)
-                        el.style.color = "red";
-                    else
-                        el.style.color = "black";
-                });
-            }
-        });
+    setInterval(async () => {
+        for (let i = 0; i < friends_list.length; i++) {
+            const username = friends_list[i];
+            const el = document.getElementById("code_for_" + username);
+            if (el == undefined) continue;
+            getCodeFor(username).then((code) => {
+                el.innerText = code;
+                const time_left = Math.round((oneTimeDuration - ((new Date()).getTime() % oneTimeDuration)) / 1000);
+                el.style.color = (time_left <= 5) ? "red" : "black";
+            });
+        }
     }, 1000);
     navigator.serviceWorker.addEventListener("message", (event) => {
         if (event.data == "reload") {

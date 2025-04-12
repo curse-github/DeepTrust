@@ -12,7 +12,11 @@ type sessionType = {
     username: string,
     expiration: number,
     ip: string,
-    platform: string
+    platform: string,
+    endpoint: string|undefined,
+    auth: string|undefined,
+    p256dh: string|undefined,
+    active: boolean
 };
 type notificationSubType = {
     type: "webpush",
@@ -26,12 +30,14 @@ type userType = {
     email: string,
     username: string,
     pass_hash: string,
-    notif_sub?: notificationSubType,
     friends_list: string[]
 };
 type logType = {
+    id: string,
     reason: string,
+    state: number,
     time: number,
+    expiration: number,
     // from
     from: userType["username"],
     fromSession: keyof sessionMap,
@@ -90,20 +96,28 @@ readConfig();
 const port: number = Number(config.ports.main);
 const SESSION_LENGTH: number = Number(config.session.length);
 const sessionIdCookieName: string = config.session.cookie_name;
+const AUTHENTICATION_LENGTH: number = Number(config.authentication.length);
 // #endregion reading database
 
 // #region webpush
 const publicKey: string = readFileSync("public-key.txt").toString();
 const privateKey: string = readFileSync("private-key.txt").toString();
 webpush.setVapidDetails("mailto:curse@simpsoncentral.com", publicKey, privateKey);
-function pushUser(username: string, data: any) {
+function pushUser(session: sessionType, data: any) {
     return new Promise((resolve) => {
-        const userIndex = userIndexByName[username];
-        const user: userType = users[userIndex];
-        if (user == undefined) { console.log("User not found."); return; }
-        if (user.notif_sub == undefined) { console.log("User has not subbed to notifications."); return; }
-        webpush.sendNotification(user.notif_sub, JSON.stringify(data))
+        if (session == undefined) { console.log("User not found."); return; }
+        if (session.endpoint == undefined) { console.log("User has not subbed to notifications."); return; }
+        const notifSub: notificationSubType = {
+            type: "webpush",
+            endpoint: session.endpoint!,
+            keys: {
+                auth: session.auth!,
+                p256dh: session.p256dh!
+            }
+        };
+        webpush.sendNotification(notifSub, JSON.stringify(data))
             .then((res: any) => {
+                // console.log(res);
                 resolve(true);
             })
             .catch((error: any) => {
@@ -111,15 +125,15 @@ function pushUser(username: string, data: any) {
             });
     });
 }
-function notifyUser(username: string, header: string, body: string) {
-    pushUser(username, { type: "notification", data: { header, body } });
+function notifyUser(session: sessionType, header: string, body: string) {
+    pushUser(session, { type: "notification", data: { header, body } });
 }
 // #endregion
 
+// #region express setup
 const app: Application = express();
 app.use(express.json());
 const server: http.Server = http.createServer(app);
-
 const serveStatic: ((app: Application, path: string, filePath: string)=> void) = (app: Application, path: string, filePath: string) => {
     app.get(path, (async function(req: Request, res: Response) {
         res.sendFile(__dirname + filePath, (err: Error) => {
@@ -149,6 +163,22 @@ const serverStaticSimple: ((path: string)=> void) = (path: string) => {
 const serveStaticAuthedSimple: ((path: string, redirect: boolean)=> void) = (path: string, redirect: boolean) => {
     serveStaticAuthed(app, "/" + path, "\\webpage\\" + path, redirect);
 };
+
+serverStaticSimple("main.css");
+serverStaticSimple("login.js");
+serverStaticSimple("create.js");
+serverStaticSimple("manifest.json");
+serverStaticSimple("favicon.ico");
+serverStaticSimple("favicon.png");
+serverStaticSimple("hashLib.js");
+serveStaticAuthedSimple("index.html", true);
+serveStaticAuthedSimple("index.css", false);
+serveStaticAuthedSimple("index.js", false);
+serveStaticAuthedSimple("notifications.js", false);
+serveStaticAuthedSimple("service-worker.js", false);
+// #endregion express setup
+
+// #region login and create
 app.get("/login.html", async (req: Request, res: Response) => {
     // clear cookie if there is one, and clear thei session data if session id was valid
     const cookies: {[key: string]: string} = getCookies(req);
@@ -159,6 +189,7 @@ app.get("/login.html", async (req: Request, res: Response) => {
             delete usernameToSessionId[sessionIdToUsername[id]];
             delete sessionIdToUsername[id];
             delete sessions[id];
+            saveDb();
         }
     }
     res.sendFile(__dirname + "\\webpage\\login.html", (err: Error) => {
@@ -196,7 +227,11 @@ app.get("/tryLogin", async (req: Request, res: Response) => {
         username: user.username,
         expiration: (new Date()).getTime() + SESSION_LENGTH,
         ip: (req.headers["x-forwarded-for"] || req.socket.remoteAddress) as string,
-        platform: (req.headers["sec-ch-ua-platform"] as string|undefined) || "none"
+        platform: ((req.headers["sec-ch-ua-platform"] as string|undefined) || "none"),
+        endpoint: undefined,
+        auth: undefined,
+        p256dh: undefined,
+        active: true
     };
     saveDb();
     res.cookie(sessionIdCookieName, sessionId, { maxAge: SESSION_LENGTH, httpOnly: false });
@@ -246,12 +281,13 @@ app.get("/tryCreate", async (req: Request, res: Response) => {
         username,
         email,
         pass_hash,
-        notif_sub: undefined,
         friends_list: []
     });
     saveDb();
     res.redirect("/login.html");
 });
+// #endregion login and create
+
 app.get("/getUserData", async (req: Request, res: Response) => {
     if (!validateSession(req, res)) {
         res.status(401).send("");
@@ -260,7 +296,15 @@ app.get("/getUserData", async (req: Request, res: Response) => {
     const cookies: {[key: string]: string} = getCookies(req);
     const username: string = sessions[cookies[sessionIdCookieName]].username;
     const user: userType = users[userIndexByName[username]];
-    res.json({ name: username, friends_list: user.friends_list, logs: [] });
+    let activeLogs: logType[] = [];
+    const time: number = (new Date()).getTime();
+    for (let i = 0; i < logs.length; i++) {
+        const log = logs[i];
+        if (
+            (log.expiration > time) && ((log.from == username) || (log.to == username))
+        ) { activeLogs.push(log); }
+    }
+    res.json({ name: username, friends_list: user.friends_list, logs: activeLogs });
 });
 app.post("/addFriend", async (req: Request, res: Response) => {
     if (!validateSession(req, res)) {
@@ -297,8 +341,10 @@ app.post("/req_key_from", async (req: Request, res: Response) => {
     const keyFromUser: userType = users[userIndexByName[keyFromUsername]];
     // they must have both added each other
     if (!keyForUser.friends_list.includes(keyFromUsername) || !keyFromUser.friends_list.includes(keyForUsername)) { res.json(false); return; }
+    // console.log("\n/req_key_from_" + keyFromUsername);
     // request key
-    pushUser(keyFromUsername, { type: "request", data: { for: keyForUsername } });
+    const keyFromSessionId: string = usernameToSessionId[keyFromUsername];
+    pushUser(sessions[keyFromSessionId], { type: "request", data: { for: keyForUsername } });
     // notifyUser(keyForUsername, "requested", "BODY");
     res.json(true);
 });
@@ -320,50 +366,203 @@ app.post("/give_key_for", async (req: Request, res: Response) => {
     if (!keyForUser.friends_list.includes(keyFromUsername) || !keyFromUser.friends_list.includes(keyForUsername)) { res.json(false); return; }
     // key must exist
     if ((typeof req.body.totpKey) !== "string") { res.json(false); return; }
+    // console.log("/give_key_for_" + keyForUsername);
     // send key over
-    pushUser(keyForUsername, { type: "submission", data: { from: keyFromUsername, totpKey: req.body.totpKey } });
+    const keyForSessionId: string = usernameToSessionId[keyForUsername];
+    pushUser(sessions[keyForSessionId], { type: "submission", data: { from: keyFromUsername, totpKey: req.body.totpKey } });
     // notifyUser(keyForUsername, "received", "BODY");
     res.json(true);
 });
-serverStaticSimple("main.css");
-serverStaticSimple("login.js");
-serverStaticSimple("create.js");
-serverStaticSimple("manifest.json");
-serverStaticSimple("favicon.ico");
-serverStaticSimple("favicon.png");
-serverStaticSimple("hashLib.js");
-serverStaticSimple("qrcode.js");
-serveStaticAuthedSimple("index.html", true);
-serveStaticAuthedSimple("index.css", false);
-serveStaticAuthedSimple("index.js", false);
-serveStaticAuthedSimple("notifications.js", false);
-serveStaticAuthedSimple("service-worker.js", false);
+
+// #region auth functions
+app.post("/auth_start", async (req: Request, res: Response) => {
+    if (!validateSession(req, res)) {
+        res.status(401).send("");
+        return;
+    }
+    // auth from user
+    const fromSessionId: string = getCookies(req)[sessionIdCookieName];
+    const fromSession: sessionType = sessions[fromSessionId];
+    const authFromUsername: string = fromSession.username;
+    const authFromUser: userType = users[userIndexByName[authFromUsername]];
+    // auth to user
+    if ((typeof req.body.to) !== "string") { res.json(false); return; }
+    const authToUsername: string = req.body.to;
+    if (userIndexByName[authToUsername] == undefined) { res.json(false); return; }
+    const authToUser: userType = users[userIndexByName[authToUsername]];
+    // they must have both added each other
+    if (!authToUser.friends_list.includes(authFromUsername) || !authFromUser.friends_list.includes(authToUsername)) { res.json(false); return; }
+    // create log
+    const time: number = (new Date()).getTime();
+    for (let i = 0; i < logs.length; i++) {
+        const log = logs[i];
+        if (log.from !== authFromUsername) continue;// log isnt for the intended users
+        if (log.to !== authToUsername) continue;// log isnt for the intended users
+        if (log.expiration <= time) continue;// log has expired
+        // found log for those users already opened
+        pushUser(fromSession, { type: "reload" });
+        res.json(false);
+        return;
+    }
+    logs.push({
+        id: generateUUID(),
+        reason: "",
+        state: 0,
+        time: time,
+        expiration: time + AUTHENTICATION_LENGTH,
+        from: authFromUsername,
+        fromSession: fromSessionId,
+        fromAuthenticated: false,
+        fromIp: fromSession.ip,
+        fromPlatform: fromSession.platform,
+        to: authToUsername,
+        toSession: "",
+        toAuthenticated: false,
+        toIp: "",
+        toPlatform: ""
+    });
+    saveDb();
+    res.json(true);
+    pushUser(fromSession, { type: "reload" });
+    const authToSessionId: string = usernameToSessionId[authToUsername];
+    pushUser(sessions[authToSessionId], { type: "reload" });
+});
+app.post("/auth_from_user", async (req: Request, res: Response) => {
+    if (!validateSession(req, res)) {
+        res.status(401).send("");
+        return;
+    }
+    // auth from user
+    const toSessionId: string = getCookies(req)[sessionIdCookieName];
+    const toSession: sessionType = sessions[toSessionId];
+    const authToUsername: string = toSession.username;
+    const authToUser: userType = users[userIndexByName[authToUsername]];
+    // auth to user
+    if ((typeof req.body.from) !== "string") { res.json(false); return; }
+    const authFromUsername: string = req.body.from;
+    if (userIndexByName[authFromUsername] == undefined) { res.json(false); return; }
+    const authFromUser: userType = users[userIndexByName[authFromUsername]];
+    // they must have both added each other
+    if (!authToUser.friends_list.includes(authFromUsername) || !authFromUser.friends_list.includes(authToUsername)) { res.json(false); return; }
+    // find log
+    const time: number = (new Date()).getTime();
+    for (let i = 0; i < logs.length; i++) {
+        const log = logs[i];
+        if (log.from !== authFromUsername) continue;// log isnt for the intended users
+        if (log.to !== authToUsername) continue;// log isnt for the intended users
+        if (log.expiration <= time) continue;// log has expired
+        if (log.state !== 0) { res.json(false); return; }
+        // update log
+        logs[i].state = 1;
+        logs[i].fromAuthenticated = true;
+        logs[i].toSession = toSessionId;
+        logs[i].toIp = toSession.ip;
+        logs[i].toPlatform = toSession.platform;
+        saveDb();
+        res.json(true);
+        const authFromSessionId: string = usernameToSessionId[authFromUsername];
+        pushUser(sessions[authFromSessionId], { type: "reload" });
+        pushUser(toSession, { type: "reload" });
+        return;
+    }
+    res.json(false);
+});
+app.post("/auth_to_user", async (req: Request, res: Response) => {
+    if (!validateSession(req, res)) {
+        res.status(401).send("");
+        return;
+    }
+    // auth from user
+    const fromSessionId: string = getCookies(req)[sessionIdCookieName];
+    const fromSession: sessionType = sessions[fromSessionId];
+    const authFromUsername: string = fromSession.username;
+    const authFromUser: userType = users[userIndexByName[authFromUsername]];
+    // auth to user
+    if ((typeof req.body.to) !== "string") { res.json(false); return; }
+    const authToUsername: string = req.body.to;
+    if (userIndexByName[authToUsername] == undefined) { res.json(false); return; }
+    const authToUser: userType = users[userIndexByName[authToUsername]];
+    // they must have both added each other
+    if (!authToUser.friends_list.includes(authFromUsername) || !authFromUser.friends_list.includes(authToUsername)) { res.json(false); return; }
+    // create log
+    const time: number = (new Date()).getTime();
+    for (let i = 0; i < logs.length; i++) {
+        const log = logs[i];
+        if (log.from !== authFromUsername) continue;// log isnt for the intended users
+        if (log.to !== authToUsername) continue;// log isnt for the intended users
+        if (log.expiration <= time) continue;// log has expired
+        if (log.state !== 1) { res.json(false); return; }
+        logs[i].state = 2;
+        logs[i].toAuthenticated = true;
+        saveDb();
+        res.json(true);
+        pushUser(fromSession, { type: "reload" });
+        const authToSessionId: string = usernameToSessionId[authToUsername];
+        pushUser(sessions[authToSessionId], { type: "reload" });
+        return;
+    }
+    res.json(false);
+});
+app.post("/auth_end", async (req: Request, res: Response) => {
+    if (!validateSession(req, res)) {
+        res.status(401).send("");
+        return;
+    }
+    // auth from user
+    const sessionId: string = getCookies(req)[sessionIdCookieName];
+    const session: sessionType = sessions[sessionId];
+    const username: string = session.username;
+    const user: userType = users[userIndexByName[username]];
+    // auth to user
+    if ((typeof req.body.with) !== "string") { res.json(false); return; }
+    const withUsername: string = req.body.with;
+    if (userIndexByName[withUsername] == undefined) { res.json(false); return; }
+    const withUser: userType = users[userIndexByName[withUsername]];
+    // they must have both added each other
+    if (!withUser.friends_list.includes(username) || !user.friends_list.includes(withUsername)) { res.json(false); return; }
+    // create log
+    const time: number = (new Date()).getTime();
+    for (let i = 0; i < logs.length; i++) {
+        const log = logs[i];
+        if (!(
+            ((log.from === username) && (log.to === withUsername))
+            || ((log.from === withUsername) && (log.to === username))
+        )) continue;
+        if (log.expiration <= time) continue;// log has expired
+        if (log.state !== 2) { res.json(false); return; }
+        logs[i].expiration = time;
+        saveDb();
+        res.json(true);
+        pushUser(session, { type: "reload" });
+        const withSessionId: string = usernameToSessionId[withUsername];
+        pushUser(sessions[withSessionId], { type: "reload" });
+        return;
+    }
+    res.json(false);
+});
+// #endregion auth functions
 
 app.post("/notif/subscribe", (async (req: Request, res: Response) => {
     if (!validateSession(req, res)) {
         res.status(401).send("<html><head><title>Unauthorized</title></head><body>Unauthorized</body></html>");
         return;
     }
-    const cookies: {[key: string]: string} = getCookies(req);
-    const session: sessionType = sessions[cookies[sessionIdCookieName]];
-    const userIndex = userIndexByName[session.username];
-    
     const { endpoint, keys } = req.body;
     // console.log(session.username + " subscribed.");
     if (
         ((typeof endpoint) !== "string")
         || ((typeof keys) !== "object")
-        || ((typeof keys["auth"]) !== "string")
-        || ((typeof keys["p256dh"]) !== "string")
+        || ((typeof keys.auth) !== "string")
+        || ((typeof keys.p256dh) !== "string")
     ) {
         res.status(401).send("<html><head><title>Unauthorized</title></head><body>Unauthorized</body></html>");
         return;
     }
-    users[userIndex].notif_sub = {
-        type: "webpush",
-        endpoint: (endpoint as string),
-        keys: keys as notificationSubType["keys"]
-    };
+    const cookies: {[key: string]: string} = getCookies(req);
+    const sessionId = cookies[sessionIdCookieName];
+    sessions[sessionId].endpoint = endpoint;
+    sessions[sessionId].auth = keys.auth;
+    sessions[sessionId].p256dh = keys.p256dh;
     saveDb();
 }).bind(this));
 

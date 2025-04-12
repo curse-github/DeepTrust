@@ -16,25 +16,24 @@ self.addEventListener("push", (event) => {
             });
         } else if (json.type == "request") {
             // console.log(json.data);
+            // create new key
             const forUsername = json.data.for;
+            const totpKey = generateHotpKey();
             const cache = await caches.open("deep-trust");
-            const cachedResponseHas = await cache.match("/has_key_for_" + forUsername);
-            if (cachedResponseHas) {
-                if ((await cachedResponseHas.json()) == true) {
-                    const cachedResponseKey = await cache.match("/key_for_" + forUsername);
-                    if (cachedResponseKey) {
-                        // has key, send it over
-                        const totpKey = (await cachedResponseKey.json()).key;
-                        fetch("/give_key_for", {
-                            method: "POST",
-                            headers: {
-                                "Content-Type": "application/json"
-                            },
-                            body: JSON.stringify({ for: forUsername, totpKey })
-                        });
-                    }
-                }
-            }
+            cache.put("/key_for_" + forUsername, new Response(JSON.stringify({ key: totpKey }), { status: 200, statusText: "OK" }));
+            cache.put("/has_key_for_" + forUsername, new Response("true", { status: 200, statusText: "OK" }));
+            // send key to server
+            fetch("/give_key_for", {
+                method: "POST",
+                headers: {
+                    "Content-Type": "application/json"
+                },
+                body: JSON.stringify({ for: forUsername, totpKey })
+            });
+            const tabs = await clients.matchAll({ includeUncontrolled: true, type: "window" });
+            for (let i = 0; i < tabs.length; i++)
+                if (tabs[i].url == url)
+                    tabs[i].postMessage("reload");
         } else if (json.type == "submission") {
             // console.log(json.data);
             const fromUsername = json.data.from;
@@ -43,9 +42,24 @@ self.addEventListener("push", (event) => {
             await cache.put("/key_from_" + fromUsername, new Response(JSON.stringify({ key }), { status: 200, statusText: "OK" }));
             await cache.put("/has_key_from_" + fromUsername, new Response("true", { status: 200, statusText: "OK" }));
             const tabs = await clients.matchAll({ includeUncontrolled: true, type: "window" });
+            for (let i = 0; i < tabs.length; i++)
+                if (tabs[i].url == url)
+                    tabs[i].postMessage("reload");
+        } else if (json.type == "reload") {
+            const tabs = await clients.matchAll({ includeUncontrolled: true, type: "window" });
+            for (let i = 0; i < tabs.length; i++)
+                if (tabs[i].url == url)
+                    tabs[i].postMessage("reload");
+        } else if (json.type == "ping") {
             for (let i = 0; i < tabs.length; i++) {
                 if (tabs[i].focused && (tabs[i].url == url)) {
-                    tabs[i].postMessage("reload");
+                    fetch("/pong", {
+                        method: "POST",
+                        headers: {
+                            "Content-Type": "application/json"
+                        }
+                    });
+                    return;
                 }
             }
         }
@@ -83,6 +97,8 @@ self.addEventListener("fetch", (event) => {
             if (
                 url.startsWith("/has_key_for_") || url.startsWith("/key_for_")
                 || url.startsWith("/has_key_from_") || url.startsWith("/key_from_")
+                || url.startsWith("/auth_start") || url.startsWith("/auth_from_user")
+                || url.startsWith("/auth_to_user") || url.startsWith("/auth_end")
             ) return;
             event.waitUntil((async () => {
                 const res = await fetch(event.request);
@@ -97,16 +113,14 @@ self.addEventListener("fetch", (event) => {
                 resolve(new Response(JSON.stringify({ key: undefined }), { status: 404, statusText: "MISSING" }));
             } else if (url.startsWith("/key_from_")) {
                 resolve(new Response(JSON.stringify({ key: undefined }), { status: 404, statusText: "MISSING" }));
-            } else if (url.startsWith("/generate_key_for_")) {
-                const name = url.replace("/generate_key_for_", "");
-                const key = generateHotpKey();
+            } else if (url.startsWith("/clear_keys_with_")) {
+                const name = url.replace("/clear_keys_with_", "");
                 event.waitUntil(Promise.all([
-                    cache.put("/key_for_" + name, new Response(JSON.stringify({ key }), { status: 200, statusText: "OK" })),
-                    cache.put("/has_key_for_" + name, new Response("true", { status: 200, statusText: "OK" }))
+                    cache.delete("/has_key_for_" + name),
+                    cache.delete("/key_for_" + name),
+                    cache.delete("/has_key_from_" + name),
+                    cache.delete("/key_from_" + name)
                 ]));
-                resolve(new Response("true", { status: 200, statusText: "OK" }));
-            } else if (url.startsWith("/clear_keys")) {
-                event.waitUntil(caches.delete("deep-trust"));
                 resolve(new Response("true", { status: 200, statusText: "OK" }));
             } else {
                 event.waitUntil((async () => {
