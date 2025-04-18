@@ -25,11 +25,10 @@ function urlBase64ToUint8Array(base64String) {
     return outputArray;
 }
 
-async function subscribeNotif() {
-    if (!("showNotification" in ServiceWorkerRegistration.prototype)) { console.log("Web push is not avaliable1."); return; }
-    if (!("Notification" in window)) { console.log("Web push is not avaliable2."); return; }
-    if ((await Notification.requestPermission()) != "granted") { console.log("Permission is not granted."); return; }
-
+async function checkNotif() {
+    if (!("showNotification" in ServiceWorkerRegistration.prototype)) return;
+    if (!("Notification" in window)) return;
+    if (Notification.permission != "granted") return;
     const swReg = await navigator.serviceWorker.ready;
     const details = await swReg.pushManager.subscribe({
         userVisibleOnly: true,
@@ -49,7 +48,35 @@ async function subscribeNotif() {
         })
     }).then((data) => {
         data.text().then((text) => {
-            console.log(text);
+            // console.log(text);
+        });
+    });
+}
+checkNotif();
+async function subscribeNotif() {
+    if (!("showNotification" in ServiceWorkerRegistration.prototype)) { console.log("Web push is not avaliable."); return; }
+    if (!("Notification" in window)) { console.log("Web push is not avaliable."); return; }
+    if ((await Notification.requestPermission()) != "granted") { console.log("Permission is not granted."); return; }
+    const swReg = await navigator.serviceWorker.ready;
+    const details = await swReg.pushManager.subscribe({
+        userVisibleOnly: true,
+        applicationServerKey: "BEMJCCnH7I-zMtTMezPJpNF3CIG5S4sPvEOmMETUrsi-BZm2UWtxnACPEltgaVPOguJuhAa_PfEZ4gTQJGCiCNs"
+    });
+    fetch("/notif/subscribe", {
+        method: "POST",
+        headers: {
+            "Content-Type": "application/json"
+        },
+        body: JSON.stringify({
+            endpoint: details.endpoint,
+            keys: {
+                auth: arrayBufferToBase64(details.getKey("auth")),
+                p256dh: arrayBufferToBase64(details.getKey("p256dh"))
+            }
+        })
+    }).then((data) => {
+        data.text().then((text) => {
+            // console.log(text);
         });
     });
 }

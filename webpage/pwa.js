@@ -26,14 +26,14 @@ function onSwReady(func) {
 
 // #region fetch stuff
 async function getJSON(path) {
-    try {
-        const res = await fetch(path);
-        if (!res.ok) throw Error("");
-        return await res.json();
-    } catch (err) {
-        window.location.pathname = "/login.html";
-        throw Error("");
-    }
+    const res = await new Promise((resolve) => {
+        fetch(path).then(resolve).catch((err) => resolve({ ok: false }));
+    });
+    if (!res.ok) throw Error("");
+    const json = await new Promise((resolve) => {
+        res.json().then(resolve).catch((err) => resolve(undefined));
+    });
+    return json;
 }
 async function postJSON(path, data) {
     try {
@@ -54,25 +54,21 @@ async function postJSON(path, data) {
 // #endregion fetch stuff
 
 // #region key stuff
-async function getHasKeyFrom(username) {
+async function getKeysState() {
     if (!swReady) return false;
-    return await getJSON("/has_key_from_" + username);
+    return await getJSON("/get_keys_state");
 }
-async function getHasKeyFor(username) {
+async function getCodeFor() {
     if (!swReady) return false;
-    return await getJSON("/has_key_for_" + username);
-}
-async function getCodeFor(username) {
-    if (!swReady) return false;
-    if (await getHasKeyFor(username))
-        return getTOTP((await getJSON("/key_for_" + username)).key);
+    const key = (await getJSON("/key_for_" + selectedUser)).key;
+    if (key) return getTOTP(key);
     else return undefined;
 }
-async function validateCodeFrom(username) {
-    const el = document.getElementById("code_from_" + username);
+async function validateCodeFrom() {
+    const el = document.getElementById("code_from");
     const code = el.value;
     if (
-        !swReady || (code.length != 6) || !checkTotp((await getJSON("/key_from_" + username)).key, code)
+        !swReady || (code.length != 6) || !checkTotp((await getJSON("/key_from_" + selectedUser)).key, code)
     ) {
         el.style.color = "red";
         return false;
@@ -81,163 +77,174 @@ async function validateCodeFrom(username) {
         return true;
     }
 }
-async function clearKeysWith(username) {
-    const output = await getJSON("/clear_keys_with_" + username);
-    if (output)
-        window.location.reload();
+async function clearKeysWith() {
+    const output = await getJSON("/clear_keys_with_" + selectedUser);
+    if (output) reload();
 }
 // #endregion key stuff
 
 async function attemptAddFriend() {
-    const email = document.getElementById("addFriendEmail").value;
+    const el = document.getElementById("addFriendEmail");
+    const email = el.value;
     const output = await postJSON("/addFriend", { email });
-    if (output) {
-        window.location.reload();
-    } else {
-        document.getElementById("addFriendEmail").style.color = "red";
-    }
+    if (output) el.value = "";
+    else el.style.color = "red";
 }
-async function requestKeyFrom(username) {
-    await postJSON("/req_key_from", { from: username });
+async function requestKeyFrom() {
+    await postJSON("/req_key_from", { from: selectedUser });
 }
 
 // #region authentication functions
-async function authStart(username) {
-    await postJSON("/auth_start", { to: username });
+async function authStart() {
+    await postJSON("/auth_start", { to: selectedUser });
 }
-async function authFromUser(username) {
-    await postJSON("/auth_from_user", { from: username });
+async function authFromUser() {
+    await postJSON("/auth_from_user", { from: selectedUser });
 }
-async function authToUser(username) {
-    await postJSON("/auth_to_user", { to: username });
+async function authToUser() {
+    await postJSON("/auth_to_user", { to: selectedUser });
 }
-async function authEnd(username) {
-    await postJSON("/auth_end", { with: username });
-}
+/* async function authEnd() {
+    await postJSON("/auth_end", { with: selectedUser });
+}*/
 // #endregion authentication functions
 
 let myUsername = "";
+let selectedUser = "";
 async function reload() {
     const data = await getJSON("/getUserData");
     if (data == undefined) throw new Error("");
-    const { friends_list, logs } = data;
+    const { friends_list, online_list, logs, online } = data;
     myUsername = data.name;
-    let logMap = {};
-    for (let i = 0; i < logs.length; i++) {
-        const log = logs[i];
-        if (log.from == myUsername) logMap[log.to] = [ 0, log.state ];
-        else logMap[log.from] = [ 1, log.state ];
+    const time = (new Date()).getTime();
+    // make the subscribe button go away or come back
+    const cookies = Object.fromEntries(document.cookie.split("; ").map((str) => str.split("=")));
+    if (cookies.isSubbed !== "false") document.getElementById("Subscribe").className = "hidden";
+    else document.getElementById("Subscribe").className = "mr-1";
+    // get make from user to active logs and states
+    let stateMap = {};
+    let logsMap = {};
+    const logsSorted = logs.sort((a, b) => b.time - a.time);// reverse order
+    for (let i = 0; i < logsSorted.length; i++) {
+        const log = logsSorted[i];
+        const date = new Date(log.time);
+        const hours = date.getHours();
+        let logStr = "";
+        if (log.state == 2)
+            logStr = date.getMonth().toString().padStart(2, "0") + "/" + date.getDate().toString().padStart(2, "0") + "/" + date.getFullYear() + " " + (hours % 13).toString().padStart(2, "0") + ":" + date.getMinutes().toString().padStart(2, "0") + ":" + date.getSeconds().toString().padStart(2, "0") + ((hours < 12) ? " AM" : " PM") + " : ";// "<br>&nbsp;&nbsp;&nbsp;&nbsp;";
+        let logWith = "";
+        if (log.from == myUsername) {
+            if (log.expiration > time)
+                stateMap[log.to] = [ 0, log.state ];
+            logWith = log.to;
+            if (log.state == 2)
+                logStr += myUsername + " -> " + log.to;
+        } else {
+            if (log.expiration > time)
+                stateMap[log.from] = [ 1, log.state ];
+            logWith = log.from;
+            if (log.state == 2)
+                logStr += log.from + " -> " + myUsername;
+        }
+        if (log.state == 2) {
+            // if (log.expiration > time)
+            //     logStr += " until now.";
+            // else {
+            /* logStr += " for ";
+            const diff = log.expiration - log.time;
+            const s = Math.floor(diff / 1000);
+            const m = Math.floor(s / 60);
+            const h = Math.floor(m / 60);
+            if (h) logStr += h + "hrs, ";
+            if (h || m) logStr += (m % 60) + "mins, ";
+            if (h || m || s) logStr += (s % 60) + "secs.";
+            if (!h && !m && !s) logStr += ms + "ms";
+            // }*/
+            logsMap[logWith] ||= [];
+            logsMap[logWith].push(logStr);
+        }
     }
-    const hasKeysFor = Object.fromEntries((await Promise.all(friends_list.map((username) => getHasKeyFor(username)))).map((hasKey, i) => [ friends_list[i], hasKey ]));
-    const hasKeysFrom = Object.fromEntries((await Promise.all(friends_list.map((username) => getHasKeyFrom(username)))).map((hasKey, i) => [ friends_list[i], hasKey ]));
+    // const hasKeysFor = Object.fromEntries((await Promise.all(friends_list.map((username) => getHasKeyFor(username)))).map((hasKey, i) => [ friends_list[i], hasKey ]));
+    // const hasKeysFrom = Object.fromEntries((await Promise.all(friends_list.map((username) => getHasKeyFrom(username)))).map((hasKey, i) => [ friends_list[i], hasKey ]));
+    const keysState = await getKeysState();// keysState["friend"][ "key1", "key2"] -> key for friend is "key1", key from friend is "key2"
+    // create friends list
     const friends_list_element = document.getElementById("friends_list");
     friends_list_element.innerHTML = "";
-    friends_list.forEach(async (username) => {
+    if ((selectedUser.length == 0) && (friends_list.length > 0)) selectedUser = friends_list[0];
+    friends_list.forEach(async (username, i) => {
         const friend = document.createElement("div");
-        friend.className = "friend";
-        const nameEl = document.createElement("div");
-        nameEl.style.fontWeight = "bold";
-        nameEl.innerText = username;
-        friend.appendChild(nameEl);
-        const center = document.createElement("div");
-        {
-            const centerLeft = document.createElement("div");
-            {
-                const centerLeftStatus = document.createElement("div");
-                centerLeftStatus.innerHTML = "Key for: <div class=\"dot " + (hasKeysFor[username] ? "green" : "red") + "\"></div>";
-                centerLeft.appendChild(centerLeftStatus);
+        friend.className = "flex flex-row flex-centery flex-space pl-1 pr-1 border br-5 my-0_5 mx-0_5 fw-normal h4";
+        friend.style["border-width"] = "2px";
+        if (username == selectedUser) friend.className += " glow";
+        // friend.style["border-color"] = "red";
+        // if (stateMap[username] && (stateMap[username][1] == 2)) friend.style["border-color"] = "green";
+        friend.innerHTML = "<div class=\"dot mr-1 " + (online_list[i] ? "green" : "red") + "\"></div>";
+        friend.innerHTML += "<div" + ((username == selectedUser) ? " class='bold h3'" : "") + " style='text-align: left; flex-grow: 5'>" + username + "<div>";
+        friend.innerHTML += "<div><div class=\"dot mx-0_5 " + ((keysState[username][0] === 0) ? "red" : ((keysState[username][0] === 2) ? "green" : "yellow")) + "\"></div>-><div class=\"dot mx-0_5 " + ((keysState[username][1] === 0) ? "red" : ((keysState[username][1] === 2) ? "green" : "yellow")) + "\"></div></div>";
+        friend.addEventListener("click", () => {
+            if (username != selectedUser) {
+                selectedUser = username;
+                reload();
             }
-            center.appendChild(centerLeft);
-
-            const centerRight = document.createElement("div");
-            {
-                const centerRightStatus = document.createElement("div");
-                centerRightStatus.innerHTML = "Key from: <div class=\"dot " + (hasKeysFrom[username] ? "green" : "red") + "\"></div>";
-                centerRight.appendChild(centerRightStatus);
-                if (!hasKeysFrom[username]) {
-                    const centerRightSet = document.createElement("div");
-                    centerRightSet.innerHTML = "<input type=\"button\" value=\"Request Key\" onclick='requestKeyFrom(\"" + username + "\")'>";
-                    centerRight.appendChild(centerRightSet);
-                }
-            }
-            center.appendChild(centerRight);
-        }
-        friend.appendChild(center);
-
-        if (hasKeysFrom[username] || hasKeysFor[username]) {
-            const bottom1 = document.createElement("div");
-            bottom1.innerHTML = "<input type=\"button\" " + " value=\"Clear\" onclick='clearKeysWith(\"" + username + "\")'>";
-            friend.appendChild(bottom1);
-        }
-        if (hasKeysFrom[username] && hasKeysFor[username]) {
-            const test = logMap[username];
-            if (test == undefined) {
-                const bottom2 = document.createElement("div");
-                bottom2.innerHTML = "<input type=\"button\" " + " value=\"Start auth\" onclick='authStart(\"" + username + "\")'>";
-                friend.appendChild(bottom2);
-            } else if (((test[0] == 0) && (test[1] == 0)) || ((test[0] == 1) && (test[1] == 1))) {
-                // text showing code for other user
-                const bottom2 = document.createElement("div");
-                getCodeFor(username).then((code) => {
-                    const el = document.getElementById("code_for_" + username);
-                    el.innerText = code;
-                    const time_left = Math.round((oneTimeDuration - ((new Date()).getTime() % oneTimeDuration)) / 1000);
-                    el.style.color = (time_left <= 5) ? "red" : "black";
-                });
-                bottom2.innerHTML = "<div id='code_for_" + username + "' class='flex flex-center'></div>";
-                friend.appendChild(bottom2);
-            } else if ((test[0] == 1) && (test[1] == 0)) { // auth_from_user
-                // input for other users code
-                const bottom2 = document.createElement("div");
-                bottom2.innerHTML = "<input type=\"text\" " + " id='code_from_" + username + "' placeholder=\"Code from " + username + "\" oninput='validateCodeFrom(\"" + username + "\").then((valid) => { if (valid) authFromUser(\"" + username + "\"); });'>";
-                friend.appendChild(bottom2);
-            } else if ((test[0] == 0) && (test[1] == 1)) { // auth_to_user
-                // input for other users code
-                const bottom2 = document.createElement("div");
-                bottom2.innerHTML = "<input type=\"text\" " + " id='code_from_" + username + "' placeholder=\"Code from " + username + "\" oninput='validateCodeFrom(\"" + username + "\").then((valid) => { if (valid) authToUser(\"" + username + "\"); });'>";
-                friend.appendChild(bottom2);
-            } else if (test[1] == 2) {
-                const bottom2 = document.createElement("div");
-                bottom2.innerHTML = "<input type=\"button\" " + " value=\"End auth\" onclick='authEnd(\"" + username + "\")'>";
-                friend.appendChild(bottom2);
-            }
-        }
+        });
         friends_list_element.appendChild(friend);
     });
-    const addFriend = document.createElement("div");
-    addFriend.className = "friend";
-    const label = document.createElement("div");
-    label.style.fontWeight = "bold";
-    label.innerText = "Add Friend";
-    addFriend.appendChild(label);
-    const center = document.createElement("div");
-    center.innerHTML = "<input type=\"text\" id=\"addFriendEmail\" placeholder=\"email\">";
-    addFriend.appendChild(center);
-    const bottom = document.createElement("div");
-    bottom.innerHTML = "<input type=\"button\" value=\"Add\" onclick=\"attemptAddFriend()\">";
-    addFriend.appendChild(bottom);
-    friends_list_element.appendChild(addFriend);
+    // set buttons for authentication based on state
+    const authInputs = document.getElementById("auth_inputs");
+    authInputs.innerHTML = "";
+    if ((keysState[selectedUser][0] != 0) || (keysState[selectedUser][1] != 0)) {
+        authInputs.innerHTML += "<input class=\"w-75p mb-1\" type=\"button\" value=\"Clear\" onclick='clearKeysWith()'>";
+    }
+    if ((keysState[selectedUser][0] == 2) && (keysState[selectedUser][1] == 2)) {
+        const test = stateMap[selectedUser];
+        if ((test == undefined) || (test[1] == 2)) {
+            authInputs.innerHTML += "<input class='w-75p' type=\"button\" " + " value=\"Start auth\" onclick='authStart()'>";
+        } else if (((test[0] == 0) && (test[1] == 0)) || ((test[0] == 1) && (test[1] == 1))) {
+            // text showing code for other user
+            authInputs.innerHTML += "<div class='w-75p' id='code_for' class='flex flex-center'></div>";
+            getCodeFor(selectedUser).then((code) => {
+                const el = document.getElementById("code_for");
+                el.innerText = code;
+                const time_left = Math.round((oneTimeDuration - ((new Date()).getTime() % oneTimeDuration)) / 1000);
+                el.style.color = (time_left <= 5) ? "red" : "white";
+            });
+        } else if ((test[0] == 1) && (test[1] == 0)) { // auth_from_user
+            // input for other users code
+            authInputs.innerHTML += "<input class='w-75p' type=\"text\" " + " id='code_from' placeholder=\"Code from " + selectedUser + "\" oninput='validateCodeFrom().then((valid) => { if (valid) authFromUser(); });'>";
+        } else if ((test[0] == 0) && (test[1] == 1)) { // auth_to_user
+            // input for other users code
+            authInputs.innerHTML += "<input class='w-75p' type=\"text\" " + " id='code_from' placeholder=\"Code from " + selectedUser + "\" oninput='validateCodeFrom().then((valid) => { if (valid) authToUser(); });'>";
+        }//  else if (test[1] == 2) {
+        //     authInputs.innerHTML += "<input class='w-75p' type=\"button\" " + " value=\"End auth\" onclick='authEnd()'>";
+        // }
+    } else if (keysState[selectedUser][1] == 0)
+        authInputs.innerHTML += "<input class=\"w-75p mb-1\" type=\"button\" value=\"Request Key\" onclick='requestKeyFrom()'>";
+    // set logs
+    const logDiv = document.getElementById("logs");
+    logDiv.innerHTML = (logsMap[selectedUser] || []).join("<br>") || "No logs found.";
 }
 onSwReady(async () => {
     reload();
-    setInterval(async () => {
-        for (let i = 0; i < friends_list.length; i++) {
-            const username = friends_list[i];
-            const el = document.getElementById("code_for_" + username);
-            if (el == undefined) continue;
-            getCodeFor(username).then((code) => {
+    setTimeout(() => {
+        setInterval(async () => {
+            const el = document.getElementById("code_for");
+            if (el == undefined) return;
+            getCodeFor().then((code) => {
+                if (el == undefined) return;
+                if (code == undefined) { el.innerText = ""; return; }
                 el.innerText = code;
-                const time_left = Math.round((oneTimeDuration - ((new Date()).getTime() % oneTimeDuration)) / 1000);
-                el.style.color = (time_left <= 5) ? "red" : "black";
+                el.style.color = "black";
             });
-        }
-    }, 1000);
+            setTimeout(() => { if (el != undefined) el.style.color = "red"; }, oneTimeDuration - 5000);// when there is 5 seconds left
+        }, oneTimeDuration);
+    }, oneTimeDuration - ((new Date()).getTime() % oneTimeDuration));
     // ping server every little less than 1.5 seconds
     let pending = false;
     setInterval(async () => {
         if (pending) return;
         pending = true;
-        await fetch("/ping", { method: "POST", mode: "no-cors" });
+        const res = await fetch("/ping", { method: "POST", mode: "no-cors" });
+        if (!res.ok) window.location.pathname = "/login.html";
         pending = false;
     }, 1450);
     navigator.serviceWorker.addEventListener("message", (event) => {

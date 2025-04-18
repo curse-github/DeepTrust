@@ -13,11 +13,21 @@
         <link rel="stylesheet" href="pwa.css">
     </head>
 	<body>
-        <div class="w-100p flex flex-row flex-center">
-            <input type="button" value="Logout" onclick='window.location.pathname = "/login.html"'>
-            <input type="button" value="Subscribe" onclick="subscribeNotif();">
-            <input type="button" value="Reload" onclick="window.location.reload();">
+        <div id = "header" class="h-5p mb-1p w-100p flex flex-row flex-center">
+            <img src="/deeptrust-logo.png" class="w-3 h-3 mr-0_5">
+            <div class="h2" style="color:#66fcf1;">DeepTrust</div>
+            <div class="mr-2" style="color:#66fcf1;">&trade;</div>
+            <input type="button" class="mr-1" value="Logout" onclick='window.location.pathname = "/login.html"'>
+            <input type="button" class="mr-1" value="Reload" onclick='window.location.reload()'>
+            <input type="button" id="Subscribe" class="hidden" value="Subscribe" onclick="subscribeNotif();">
         </div>
-		<div id="friends_list" class="friends_list"></div>
+		<div class="h3 mb-1p w-95p ml-2_5p pt-1 pb-1 flex flex-column flex-space border br-5" style="height: 7vh">
+            <div class="bold w-100p flex flex-row flex-center">Add Friend</div>
+            <div class="w-100p flex flex-row flex-center"><input class="w-50p" type="text" id="addFriendEmail" placeholder="email"><input type="button" value="Add" class="ml-1" onclick="attemptAddFriend();"></div>
+        </div>
+		<div id="friends_list" class="h3 h-33v mb-1p w-95p mx-auto flex flex-column border br-5" style="overflow-y: scroll;"></div>
+		<div id="auth_inputs" class="h3 h-10v mb-1p w-95p ml-2_5p pt-1 pb-1 flex flex-column flex-center border br-5"></div>
+		<div id="logs" class="h5 h-25v ml-2_5p pl-1 pb-1 flex flex-column border br-5 select-text" style="overflow-y: scroll; width: calc(95% - 1rem)">
+        </div>
 	</body>
 </html>

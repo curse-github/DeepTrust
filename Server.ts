@@ -27,8 +27,7 @@ type notificationSubType = {
 type userType = {
     email: string,
     username: string,
-    pass_hash: string,
-    friends_list: string[]
+    pass_hash: string
 };
 type logType = {
     id: string,
@@ -77,6 +76,18 @@ function validateSession(req: Request, res: Response): boolean {
         sessions[sessionId].active = true;
         sessionEntries = Object.entries(sessions);
         saveDb();
+        // notify friends
+        const userIndex: number = userIndexByName[session.username];
+        for (let i = 0; i < userLink.length; i++) {
+            const link: [number, number] = userLink[i];
+            if (link[1] == userIndex) {
+                const friendsSessionId: string = usernameToSessionId[users[link[0]].username];
+                if (friendsSessionId == undefined) continue;// user is not logged in
+                const friendsSession: sessionType = sessions[friendsSessionId];
+                if (!friendsSession.active) continue;// user is not online
+                reloadUser(friendsSession);
+            }
+        }
     }
     pingTimes[sessionId] = (new Date()).getTime();
     return true;
@@ -90,11 +101,15 @@ for (let i = 0; i < users.length; i++) {
     userIndexByName[user.username] = i;
     userIndexByEmail[user.email] = i;
 }
+// userLink
+var userLink: [number, number][] = db.userLink || [];
+// keyHashTable
+var keyHashTable: [ string, string, number, number ][][] = db.keyHashTable || [];
 // logs
 var logs: logType[] = db.logs || [];
 // helper to save db file
 function saveDb() {
-    writeFileSync(dbFilePath, JSON.stringify({ sessions, users, logs }, undefined, "    "));
+    writeFileSync(dbFilePath, JSON.stringify({ sessions, users, logs, userLink, keyHashTable }, undefined, "    "));
 }
 
 readConfig();
@@ -180,6 +195,7 @@ serverStaticSimple("manifest.json");
 serverStaticSimple("favicon.ico");
 serverStaticSimple("favicon.png");
 serverStaticSimple("deeptrust-logo.png");
+serverStaticSimple("deeptrust-transition-wide.png");
 serverStaticSimple("hashLib.js");
 serverStaticSimple("index.html");
 serverStaticSimple("investorBrief.pdf");
@@ -198,10 +214,23 @@ app.get("/login.html", async (req: Request, res: Response) => {
     if (id != undefined) {
         res.clearCookie(sessionIdCookieName);
         if (sessions[id] != undefined) {
-            delete usernameToSessionId[sessions[id].username];
+            const username: string = sessions[id].username;
             delete sessions[id];
             sessionEntries = Object.entries(sessions);
+            delete usernameToSessionId[username];
             saveDb();
+
+            const userIndex: number = userIndexByName[username];
+            for (let i = 0; i < userLink.length; i++) {
+                const link: [number, number] = userLink[i];
+                if (link[1] == userIndex) {
+                    const friendsSessionId: string = usernameToSessionId[users[link[0]].username];
+                    if (friendsSessionId == undefined) continue;// user is not logged in
+                    const friendsSession: sessionType = sessions[friendsSessionId];
+                    if (!friendsSession.active) continue;// user is not online
+                    reloadUser(friendsSession);
+                }
+            }
         }
     }
     res.sendFile(__dirname + "\\webpage\\login.html", (err: Error) => {
@@ -246,6 +275,7 @@ app.get("/tryLogin", async (req: Request, res: Response) => {
     sessionEntries = Object.entries(sessions);
     saveDb();
     res.cookie(sessionIdCookieName, sessionId, { maxAge: SESSION_LENGTH, httpOnly: false });
+    res.cookie("isSubbed", "false", { maxAge: SESSION_LENGTH, httpOnly: false });
     res.redirect("/pwa.html");
 });
 app.get("/create.html", async (req: Request, res: Response) => {
@@ -255,9 +285,23 @@ app.get("/create.html", async (req: Request, res: Response) => {
     if (id != undefined) {
         res.clearCookie(sessionIdCookieName);
         if (sessions[id] != undefined) {
-            delete usernameToSessionId[sessions[id].username];
+            const username: string = sessions[id].username;
             delete sessions[id];
             sessionEntries = Object.entries(sessions);
+            delete usernameToSessionId[username];
+            saveDb();
+
+            const userIndex: number = userIndexByName[username];
+            for (let i = 0; i < userLink.length; i++) {
+                const link: [number, number] = userLink[i];
+                if (link[1] == userIndex) {
+                    const friendsSessionId: string = usernameToSessionId[users[link[0]].username];
+                    if (friendsSessionId == undefined) continue;// user is not logged in
+                    const friendsSession: sessionType = sessions[friendsSessionId];
+                    if (!friendsSession.active) continue;// user is not online
+                    reloadUser(friendsSession);
+                }
+            }
         }
     }
     res.sendFile(__dirname + "\\webpage\\create.html", (err: Error) => {
@@ -268,15 +312,17 @@ app.get("/create.html", async (req: Request, res: Response) => {
 });
 app.get("/tryCreate", async (req: Request, res: Response) => {
     const query: { [key: string]: (string|string[]|undefined) } = req.query as { [key: string]: (string|string[]|undefined) };
-    if ((typeof query.username) !== "string") { res.redirect("/create.html"); return; }
-    if ((typeof query.email) !== "string") { res.redirect("/create.html"); return; }
-    if ((typeof query.pass_hash) !== "string") { res.redirect("/create.html"); return; }
-    if ((typeof query.c_pass_hash) !== "string") { res.redirect("/create.html"); return; }
-    if ((typeof query.pass_len) !== "string") { res.redirect("/create.html"); return; }
+    if ((typeof query.username) !== "string") { res.redirect("/create.html"); return; }// must be string
+    if ((typeof query.email) !== "string") { res.redirect("/create.html"); return; }// must be string
+    if ((typeof query.pass_hash) !== "string") { res.redirect("/create.html"); return; }// must be string
+    if ((typeof query.c_pass_hash) !== "string") { res.redirect("/create.html"); return; }// must be string
+    if ((typeof query.pass_len) !== "string") { res.redirect("/create.html"); return; }// must be string
     if (query.pass_len! !== parseInt(query.pass_len! as string).toString()) { res.redirect("/create.html"); return; }
-    if (query.username!.length === 0) { res.redirect("/create.html"); return; }
-    if (query.email!.length === 0) { res.redirect("/create.html"); return; }
-    if (query.pass_hash!.length === 0) { res.redirect("/create.html"); return; }
+    if (query.username!.length === 0) { res.redirect("/create.html"); return; }// cannot be empty string
+    if (userIndexByName[query.username as string] !== undefined) { res.redirect("/create.html"); return; }// username is taken
+    if (query.email!.length === 0) { res.redirect("/create.html"); return; }// cannot be empty string
+    if (userIndexByEmail[query.email as string] !== undefined) { res.redirect("/create.html"); return; }// email is taken
+    if (query.pass_hash!.length === 0) { res.redirect("/create.html"); return; }// cannot be empty string
     if (query.pass_hash! === "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855") { res.redirect("/create.html"); return; }// also cannot be sha256 of empty string
     if (query.c_pass_hash!.length === 0) { res.redirect("/create.html"); return; }
     if (query.c_pass_hash! === "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855") { res.redirect("/create.html"); return; }// also cannot be sha256 of empty string
@@ -291,8 +337,7 @@ app.get("/tryCreate", async (req: Request, res: Response) => {
     users.push({
         username,
         email,
-        pass_hash,
-        friends_list: []
+        pass_hash
     });
     saveDb();
     res.redirect("/login.html");
@@ -306,16 +351,26 @@ app.get("/getUserData", async (req: Request, res: Response) => {
     }
     const cookies: {[key: string]: string} = getCookies(req);
     const username: string = sessions[cookies[sessionIdCookieName]].username;
-    const user: userType = users[userIndexByName[username]];
-    let activeLogs: logType[] = [];
-    const time: number = (new Date()).getTime();
+    const userIndex: number = userIndexByName[username];
+    // const user: userType = users[userIndex];
+    let relevantLogs: logType[] = [];
     for (let i = 0; i < logs.length; i++) {
         const log = logs[i];
-        if (
-            (log.expiration > time) && ((log.from == username) || (log.to == username))
-        ) { activeLogs.push(log); }
+        if ((log.from == username) || (log.to == username))
+            relevantLogs.push(log);
     }
-    res.json({ name: username, friends_list: user.friends_list, logs: activeLogs, online: true });
+    let friends_list: string[] = [];
+    let online_list: boolean[] = [];
+    for (let i = 0; i < userLink.length; i++) {
+        const link = userLink[i];
+        if (link[0] == userIndex) {
+            friends_list.push(users[link[1]].username);
+            const id = usernameToSessionId[users[link[1]].username];
+            if (id == undefined) online_list.push(false);
+            else online_list.push(sessions[id].active);
+        }
+    }
+    res.json({ name: username, friends_list, online_list, logs: relevantLogs, online: true });
 });
 app.post("/addFriend", async (req: Request, res: Response) => {
     if (!validateSession(req, res)) {
@@ -324,16 +379,23 @@ app.post("/addFriend", async (req: Request, res: Response) => {
     }
     if ((typeof req.body.email) !== "string") { res.json(false); return; }
     const cookies: {[key: string]: string} = getCookies(req);
-    const username: string = sessions[cookies[sessionIdCookieName]].username;
-    const user: userType = users[userIndexByName[username]];
+    const session: sessionType = sessions[cookies[sessionIdCookieName]];
+    const userIndex: number = userIndexByName[session.username];
+    const user: userType = users[userIndex];
     if (req.body.email.toLowerCase() == user.email) { res.json(false); return; }
 
     const addedUserIndex = userIndexByEmail[req.body.email.toLowerCase()];
     if (addedUserIndex == undefined) { res.json(false); return; }
-    const addedUser: userType = users[addedUserIndex];
+    if (addedUserIndex == userIndex) { res.json(false); return; }// cannot friend yourself
+    // const addedUser: userType = users[addedUserIndex];
     // push the users username to the users friends list
-    user.friends_list.push(addedUser.username);
+    for (let i = 0; i < userLink.length; i++) {
+        const link: [number, number] = userLink[i];
+        if ((link[0] == userIndex) && (link[1] == addedUserIndex)) { res.json(false); return; }// link already exists
+    }
+    userLink.push([ userIndex, addedUserIndex ]);
     saveDb();
+    reloadUser(session);
     res.json(true);
 });
 app.post("/req_key_from", async (req: Request, res: Response) => {
@@ -344,15 +406,22 @@ app.post("/req_key_from", async (req: Request, res: Response) => {
     // requested for user
     const cookies: {[key: string]: string} = getCookies(req);
     const keyForUsername: string = sessions[cookies[sessionIdCookieName]].username;
-    const keyForUser: userType = users[userIndexByName[keyForUsername]];
+    const keyForUserIndex: number = userIndexByName[keyForUsername];
+    // const keyForUser: userType = users[keyForUserIndex];
     // requested from user
     if ((typeof req.body.from) !== "string") { res.json(false); return; }
     const keyFromUsername: string = req.body.from;
-    if (userIndexByName[keyFromUsername] == undefined) { res.json(false); return; }
-    const keyFromUser: userType = users[userIndexByName[keyFromUsername]];
+    const keyFromUserIndex: number = userIndexByName[keyFromUsername];
+    if (keyFromUserIndex == undefined) { res.json(false); return; }
+    // const keyFromUser: userType = users[keyFromUserIndex];
     // they must have both added each other
-    if (!keyForUser.friends_list.includes(keyFromUsername) || !keyFromUser.friends_list.includes(keyForUsername)) { res.json(false); return; }
-    // console.log("\n/req_key_from_" + keyFromUsername);
+    let friendedEachOther: [boolean, boolean] = [ false, false ];
+    for (let i = 0; i < userLink.length; i++) {
+        const link = userLink[i];
+        if ((link[0] == keyFromUserIndex) && (link[1] == keyForUserIndex)) friendedEachOther[0] = true;
+        else if ((link[1] == keyFromUserIndex) && (link[0] == keyForUserIndex)) friendedEachOther[1] = true;
+    }
+    if (!friendedEachOther[0] || !friendedEachOther[1]) { res.json(false); return; }
     // request key
     const keyFromSessionId: string = usernameToSessionId[keyFromUsername];
     pushUser(sessions[keyFromSessionId], { type: "request", data: { for: keyForUsername } });
@@ -367,22 +436,80 @@ app.post("/give_key_for", async (req: Request, res: Response) => {
     // requested from user
     const cookies: {[key: string]: string} = getCookies(req);
     const keyFromUsername: string = sessions[cookies[sessionIdCookieName]].username;
-    const keyFromUser: userType = users[userIndexByName[keyFromUsername]];
+    const keyFromUserIndex: number = userIndexByName[keyFromUsername];
+    // const keyFromUser: userType = users[keyFromUserIndex];
     // requested for user
     if ((typeof req.body.for) !== "string") { res.json(false); return; }
     const keyForUsername: string = req.body.for;
-    if (userIndexByName[keyForUsername] == undefined) { res.json(false); return; }
-    const keyForUser: userType = users[userIndexByName[keyForUsername]];
+    const keyForUserIndex: number = userIndexByName[keyForUsername];
+    if (keyForUserIndex == undefined) { res.json(false); return; }
+    // const keyForUser: userType = users[keyForUserIndex];
     // they must have both added each other
-    if (!keyForUser.friends_list.includes(keyFromUsername) || !keyFromUser.friends_list.includes(keyForUsername)) { res.json(false); return; }
+    let friendedEachOther: [boolean, boolean] = [ false, false ];
+    for (let i = 0; i < userLink.length; i++) {
+        const link = userLink[i];
+        if ((link[0] == keyFromUserIndex) && (link[1] == keyForUserIndex)) friendedEachOther[0] = true;
+        else if ((link[1] == keyFromUserIndex) && (link[0] == keyForUserIndex)) friendedEachOther[1] = true;
+    }
+    if (!friendedEachOther[0] || !friendedEachOther[1]) { res.json(false); return; }
     // key must exist
     if ((typeof req.body.totpKey) !== "string") { res.json(false); return; }
-    // console.log("/give_key_for_" + keyForUsername);
     // send key over
     const keyForSessionId: string = usernameToSessionId[keyForUsername];
     pushUser(sessions[keyForSessionId], { type: "submission", data: { from: keyFromUsername, totpKey: req.body.totpKey } });
     // notifyUser(keyForUsername, "received", "BODY");
     res.json(true);
+});
+
+app.post("/get_keys_state", async (req: Request, res: Response) => {
+    if (!validateSession(req, res)) {
+        res.status(401).send("");
+        return;
+    }
+    // requested from user
+    const cookies: {[key: string]: string} = getCookies(req);
+    const username: string = sessions[cookies[sessionIdCookieName]].username;
+    const userIndex: number = userIndexByName[username];
+    // const user: userType = users[userIndex];
+    
+    if ((typeof req.body.map) !== "object") { res.json(false); return; }
+    const entries: [ string, [ string, string ]][] = Object.entries(req.body.map);
+    if (entries.length == 0) { res.json(false); return; }
+    let returnValue: { [key: string]: [ number, number ]} = Object.fromEntries(entries.map(([ friendUsername, hashes ]: [ string, [ string, string ]]) => {
+        const friendIndex: number = userIndexByName[friendUsername];
+        if (friendIndex == undefined) return [ friendUsername, [ 0, 0 ] ];
+        const inverseHashes: [ string, string, number, number ] = (keyHashTable[friendIndex] ?? [])[userIndex] ?? [ "", "" ];
+        let status1: number = 0;
+        let status2: number = 0;
+        let friendStatus1: number = 0;
+        let friendStatus2: number = 0;
+        if ((hashes[0].length !== 0) && (hashes[0] === inverseHashes[1])) {
+            status1 = 2;
+            friendStatus2 = 2;
+        } else {
+            if (hashes[0].length === 0) status1 = 0;
+            else status1 = 1;
+            if (inverseHashes[1].length === 0) friendStatus2 = 0;
+            else friendStatus2 = 1;
+        }
+        if ((hashes[1].length !== 0) && (hashes[1] === inverseHashes[0])) {
+            status2 = 2;
+            friendStatus1 = 2;
+        } else {
+            if (hashes[1].length === 0) status2 = 0;
+            else status2 = 1;
+            if (inverseHashes[0].length === 0) friendStatus1 = 0;
+            else friendStatus1 = 1;
+        }
+        keyHashTable[userIndex] ??= [];
+        keyHashTable[userIndex][friendIndex] = [ ...hashes, status1, status2 ];
+        keyHashTable[friendIndex] ??= [];
+        keyHashTable[friendIndex][userIndex] = [ inverseHashes[0], inverseHashes[1], friendStatus1, friendStatus2 ];
+        if ((inverseHashes[2] != friendStatus1) || (inverseHashes[2] != friendStatus1)) reloadUser(sessions[usernameToSessionId[friendUsername]]);
+        return [ friendUsername, [ status1, status2 ] ];
+    }));
+    res.json(returnValue);
+    saveDb();
 });
 
 // #region auth functions
@@ -395,14 +522,22 @@ app.post("/auth_start", async (req: Request, res: Response) => {
     const fromSessionId: string = getCookies(req)[sessionIdCookieName];
     const fromSession: sessionType = sessions[fromSessionId];
     const authFromUsername: string = fromSession.username;
-    const authFromUser: userType = users[userIndexByName[authFromUsername]];
+    const authFromUserIndex: number = userIndexByName[authFromUsername];
+    // const authFromUser: userType = users[authFromUserIndex];
     // auth to user
     if ((typeof req.body.to) !== "string") { res.json(false); return; }
     const authToUsername: string = req.body.to;
-    if (userIndexByName[authToUsername] == undefined) { res.json(false); return; }
-    const authToUser: userType = users[userIndexByName[authToUsername]];
+    const authToUserIndex: number = userIndexByName[authToUsername];
+    if (authToUserIndex == undefined) { res.json(false); return; }
+    // const authToUser: userType = users[authToUserIndex];
     // they must have both added each other
-    if (!authToUser.friends_list.includes(authFromUsername) || !authFromUser.friends_list.includes(authToUsername)) { res.json(false); return; }
+    let friendedEachOther: [boolean, boolean] = [ false, false ];
+    for (let i = 0; i < userLink.length; i++) {
+        const link = userLink[i];
+        if ((link[0] == authFromUserIndex) && (link[1] == authToUserIndex)) friendedEachOther[0] = true;
+        else if ((link[1] == authFromUserIndex) && (link[0] == authToUserIndex)) friendedEachOther[1] = true;
+    }
+    if (!friendedEachOther[0] || !friendedEachOther[1]) { res.json(false); return; }
     // create log
     const time: number = (new Date()).getTime();
     for (let i = 0; i < logs.length; i++) {
@@ -446,14 +581,22 @@ app.post("/auth_from_user", async (req: Request, res: Response) => {
     const toSessionId: string = getCookies(req)[sessionIdCookieName];
     const toSession: sessionType = sessions[toSessionId];
     const authToUsername: string = toSession.username;
-    const authToUser: userType = users[userIndexByName[authToUsername]];
+    const authToUserIndex: number = userIndexByName[authToUsername];
+    // const authToUser: userType = users[authToUserIndex];
     // auth to user
     if ((typeof req.body.from) !== "string") { res.json(false); return; }
     const authFromUsername: string = req.body.from;
-    if (userIndexByName[authFromUsername] == undefined) { res.json(false); return; }
-    const authFromUser: userType = users[userIndexByName[authFromUsername]];
+    const authFromUserIndex: number = userIndexByName[authFromUsername];
+    if (authFromUserIndex == undefined) { res.json(false); return; }
+    // const authFromUser: userType = users[authFromUserIndex];
     // they must have both added each other
-    if (!authToUser.friends_list.includes(authFromUsername) || !authFromUser.friends_list.includes(authToUsername)) { res.json(false); return; }
+    let friendedEachOther: [boolean, boolean] = [ false, false ];
+    for (let i = 0; i < userLink.length; i++) {
+        const link = userLink[i];
+        if ((link[0] == authFromUserIndex) && (link[1] == authToUserIndex)) friendedEachOther[0] = true;
+        else if ((link[1] == authFromUserIndex) && (link[0] == authToUserIndex)) friendedEachOther[1] = true;
+    }
+    if (!friendedEachOther[0] || !friendedEachOther[1]) { res.json(false); return; }
     // find log
     const time: number = (new Date()).getTime();
     for (let i = 0; i < logs.length; i++) {
@@ -487,14 +630,22 @@ app.post("/auth_to_user", async (req: Request, res: Response) => {
     const fromSessionId: string = getCookies(req)[sessionIdCookieName];
     const fromSession: sessionType = sessions[fromSessionId];
     const authFromUsername: string = fromSession.username;
-    const authFromUser: userType = users[userIndexByName[authFromUsername]];
+    const authFromUserIndex: number = userIndexByName[authFromUsername];
+    // const authFromUser: userType = users[authFromUserIndex];
     // auth to user
     if ((typeof req.body.to) !== "string") { res.json(false); return; }
     const authToUsername: string = req.body.to;
-    if (userIndexByName[authToUsername] == undefined) { res.json(false); return; }
-    const authToUser: userType = users[userIndexByName[authToUsername]];
+    const authToUserIndex: number = userIndexByName[authToUsername];
+    if (authToUserIndex == undefined) { res.json(false); return; }
+    // const authToUser: userType = users[authToUserIndex];
     // they must have both added each other
-    if (!authToUser.friends_list.includes(authFromUsername) || !authFromUser.friends_list.includes(authToUsername)) { res.json(false); return; }
+    let friendedEachOther: [boolean, boolean] = [ false, false ];
+    for (let i = 0; i < userLink.length; i++) {
+        const link = userLink[i];
+        if ((link[0] == authFromUserIndex) && (link[1] == authToUserIndex)) friendedEachOther[0] = true;
+        else if ((link[1] == authFromUserIndex) && (link[0] == authToUserIndex)) friendedEachOther[1] = true;
+    }
+    if (!friendedEachOther[0] || !friendedEachOther[1]) { res.json(false); return; }
     // create log
     const time: number = (new Date()).getTime();
     for (let i = 0; i < logs.length; i++) {
@@ -505,6 +656,7 @@ app.post("/auth_to_user", async (req: Request, res: Response) => {
         if (log.state !== 1) break;// log is in the wrong state
         logs[i].state = 2;
         logs[i].toAuthenticated = true;
+        logs[i].expiration = (new Date()).getTime() - 1000;
         saveDb();
         res.json(true);
         reloadUser(fromSession);
@@ -523,24 +675,30 @@ app.post("/auth_end", async (req: Request, res: Response) => {
     const sessionId: string = getCookies(req)[sessionIdCookieName];
     const session: sessionType = sessions[sessionId];
     const username: string = session.username;
-    const user: userType = users[userIndexByName[username]];
+    const userIndex: number = userIndexByName[username];
+    // const user: userType = users[userIndex];
     // auth to user
     if ((typeof req.body.with) !== "string") { res.json(false); return; }
     const withUsername: string = req.body.with;
-    if (userIndexByName[withUsername] == undefined) { res.json(false); return; }
-    const withUser: userType = users[userIndexByName[withUsername]];
+    const withUserIndex: number = userIndexByName[withUsername];
+    if (withUserIndex == undefined) { res.json(false); return; }
+    // const withUser: userType = users[withUserIndex];
     // they must have both added each other
-    if (!withUser.friends_list.includes(username) || !user.friends_list.includes(withUsername)) { res.json(false); return; }
+    let friendedEachOther: [boolean, boolean] = [ false, false ];
+    for (let i = 0; i < userLink.length; i++) {
+        const link = userLink[i];
+        if ((link[0] == userIndex) && (link[1] == withUserIndex)) friendedEachOther[0] = true;
+        else if ((link[1] == userIndex) && (link[0] == withUserIndex)) friendedEachOther[1] = true;
+    }
+    if (!friendedEachOther[0] || !friendedEachOther[1]) { res.json(false); return; }
     // create log
     const time: number = (new Date()).getTime();
     for (let i = 0; i < logs.length; i++) {
         const log = logs[i];
-        if (!(
+        if ((log.expiration <= time) || (log.state !== 2) || !(
             ((log.from === username) && (log.to === withUsername))
             || ((log.from === withUsername) && (log.to === username))
         )) continue;
-        if (log.expiration <= time) continue;// log has expired
-        if (log.state !== 2) break;// log is in the wrong state
         logs[i].expiration = time;
         saveDb();
         res.json(true);
@@ -584,6 +742,8 @@ app.post("/notif/subscribe", (async (req: Request, res: Response) => {
     sessions[sessionId].p256dh = keys.p256dh;
     sessionEntries = Object.entries(sessions);
     saveDb();
+    res.clearCookie("isSubbed");
+    res.json(true);
 }).bind(this));
 
 app.get("*", (req: Request, res: Response) => {
@@ -598,7 +758,19 @@ async function ping() {
         if (session.active) {
             if ((time - pingTimes[id]) > 3000) {
                 changed = true;
-                sessions[id].active = false;
+                session.active = false;
+                const username: string = session.username;
+                const userIndex: number = userIndexByName[username];
+                for (let i = 0; i < userLink.length; i++) {
+                    const link: [number, number] = userLink[i];
+                    if (link[1] == userIndex) {
+                        const friendsSessionId: string = usernameToSessionId[users[link[0]].username];
+                        if (friendsSessionId == undefined) continue;// user is not logged in
+                        const friendsSession: sessionType = sessions[friendsSessionId];
+                        if (!friendsSession.active) continue;// user is not online
+                        reloadUser(friendsSession);
+                    }
+                }
             }
         }
     }
