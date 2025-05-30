@@ -197,6 +197,7 @@ serverStaticSimple("favicon.png");
 serverStaticSimple("deeptrust-logo.png");
 serverStaticSimple("deeptrust-transition-wide.png");
 serverStaticSimple("hashLib.js");
+serverStaticSimple("AES.js");
 serverStaticSimple("index.html");
 serverStaticSimple("investorBrief.pdf");
 serveStaticAuthedSimple("pwa.html", true);
@@ -456,6 +457,8 @@ app.post("/give_key_for", async (req: Request, res: Response) => {
     if ((typeof req.body.totpKey) !== "string") { res.json(false); return; }
     // send key over
     const keyForSessionId: string = usernameToSessionId[keyForUsername];
+    /* console.log(keyFromUsername + " -> " + keyForUsername);
+    console.log("   key: " + req.body.totpKey);*/
     pushUser(sessions[keyForSessionId], { type: "submission", data: { from: keyFromUsername, totpKey: req.body.totpKey } });
     // notifyUser(keyForUsername, "received", "BODY");
     res.json(true);

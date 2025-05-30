@@ -5,6 +5,7 @@ self.addEventListener("activate", (event) => {
     event.waitUntil(clients.claim());
 });
 importScripts("/hashLib.js");
+importScripts("/AES.js");
 const url = self.location.origin + "/pwa.html";
 self.addEventListener("push", (event) => {
     event.waitUntil((async () => {
@@ -18,11 +19,25 @@ self.addEventListener("push", (event) => {
                 icon: "/favicon.ico"
             });
         } else {
+            /*
+            current way: A requesting key from B
+                A: post(/req_key_from, { from: "B" })
+                server: notif(B, { type: "request", data: { for: A }})
+                B: ciphertext
+                    = AES.encrypt("key", "aaaaaaaaaaaaaaaa")
+                B: post(/give_key_for, { for: A, totpKey: ciphertext }), where 
+                server: notif(A, { type: "submission", data: { from: B, totpKey: ciphertext }})
+                A: plaintext
+                    = AES.decrypt(ciphertext, "aaaaaaaaaaaaaaaa")
+                    = AES.decrypt(AES.encrypt("key", "aaaaaaaaaaaaaaaa"), "aaaaaaaaaaaaaaaa")
+                    = "key"
+            */
             const tabs = await clients.matchAll({ includeUncontrolled: true, type: "window" });
             if (json.type == "request") {
                 // create new key
                 const forUsername = json.data.for;
-                const totpKey = generateHotpKey();
+                const totpKey = generateBase32Num(64);
+                const totpKeyEnc = bytesToBase64(AES.encrypt(totpKey, AES.expandKey(stringToBytes("aaaaaaaaaaaaaaaa")), { type: AES.Type.PCBC_CTS, IV: "aaaaaaaaaaaaaaaa" }));
                 const cache = await caches.open("deep-trust");
                 await cache.put("/key_for_" + forUsername, new Response(JSON.stringify({ key: totpKey }), { status: 200, statusText: "OK" }));
                 // send key to server
@@ -31,13 +46,16 @@ self.addEventListener("push", (event) => {
                     headers: {
                         "Content-Type": "application/json"
                     },
-                    body: JSON.stringify({ for: forUsername, totpKey })
+                    body: JSON.stringify({ for: forUsername, totpKey: totpKeyEnc })
                 })).json();
             } else if (json.type == "submission") {
                 const fromUsername = json.data.from;
-                const key = json.data.totpKey;
+                const totpKeyEnc = json.data.totpKey;
+                console.log(totpKeyEnc);
+                const totpKey = AES.decrypt(base64ToBytes(totpKeyEnc), AES.expandKey(stringToBytes("aaaaaaaaaaaaaaaa")), { type: AES.Type.PCBC_CTS, IV: "aaaaaaaaaaaaaaaa" });
+                console.log(totpKey);
                 const cache = await caches.open("deep-trust");
-                await cache.put("/key_from_" + fromUsername, new Response(JSON.stringify({ key }), { status: 200, statusText: "OK" }));
+                await cache.put("/key_from_" + fromUsername, new Response(JSON.stringify({ key: totpKey }), { status: 200, statusText: "OK" }));
             } else if (json.type == "reload") {
             } else return;
             /* self.registration.showNotification("DEBUG", {
