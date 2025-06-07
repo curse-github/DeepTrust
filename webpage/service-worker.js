@@ -4,13 +4,41 @@ self.addEventListener("install", (event) => {
 self.addEventListener("activate", (event) => {
     event.waitUntil(clients.claim());
 });
-importScripts("/hashLib.js");
-importScripts("/AES.js");
+importScripts("/ShaTotpAesEcc.js");
 const url = self.location.origin + "/pwa.html";
+const myLog = async (...message) => {
+    try {
+        console.log(...message);
+        const controller = new AbortController();
+        const timeout = setTimeout(() => controller.abort(), 1000);
+        await fetch("/log", {
+            method: "POST",
+            headers: {
+                "Content-Type": "application/json"
+            },
+            body: JSON.stringify({ message }),
+            signal: controller.signal
+        }).catch((err) => {});
+        clearTimeout(timeout);
+    } catch (err) {
+        console.log("\x1b[31m", err, "\x1b[0m");
+        // await myLog("\x1b[31m", err, "\x1b[0m");
+    }
+};
+self.addEventListener("unhandledrejection", (event) => {
+    event.preventDefault();
+    // console.error("Global unhandled rejection:", event.reason);
+});
 self.addEventListener("push", (event) => {
-    event.waitUntil((async () => {
-        const json = event.data.json();
-        if (json.type == "notification") {
+    let json = { type: "" };
+    try {
+        json = event.data.json();
+    } catch (err) {
+        myLog("\x1b[31m", err, "\x1b[0m");
+        return;
+    }
+    if (json.type == "notification") {
+        event.waitUntil((async () => {
             const windows = await clients.matchAll({ includeUncontrolled: true, type: "window" });
             for (let i = 0; i < windows.length; i++)
                 if (windows[i].focused && (windows[i].url == url)) return;
@@ -18,56 +46,60 @@ self.addEventListener("push", (event) => {
                 body: json.data.body,
                 icon: "/favicon.ico"
             });
-        } else {
-            /*
-            current way: A requesting key from B
-                A: post(/req_key_from, { from: "B" })
-                server: notif(B, { type: "request", data: { for: A }})
-                B: ciphertext
-                    = AES.encrypt("key", "aaaaaaaaaaaaaaaa")
-                B: post(/give_key_for, { for: A, totpKey: ciphertext }), where 
-                server: notif(A, { type: "submission", data: { from: B, totpKey: ciphertext }})
-                A: plaintext
-                    = AES.decrypt(ciphertext, "aaaaaaaaaaaaaaaa")
-                    = AES.decrypt(AES.encrypt("key", "aaaaaaaaaaaaaaaa"), "aaaaaaaaaaaaaaaa")
-                    = "key"
-            */
+        })());
+    } else if (json.type == "request") {
+        /*
+        old way: userA requesting seed from userB
+            userA: post(/req_seed_from, { from: "userB" })
+
+            server: notif("userB", { type: "request", data: { for: "userA" }})
+            userB: ciphertext = AES.encrypt("seed", "aaaaaaaaaaaaaaaa")
+            userB: post(/give_seed_for, { for: "userA", totpSeed: ciphertext })
+
+            server: notif("userA", { type: "submission", data: { from: "userB", totpSeed: ciphertext }})
+            userA: plaintext = AES.decrypt(ciphertext, "aaaaaaaaaaaaaaaa") = "seed"
+        new way: userA requesting seed from userB
+            userA: a = genkey(); A = a * G
+            userA: post(/req_seed_from, { from: "userB", public: A })
+
+            server: notif("userB", { type: "request", data: { for: "userA", public: A }})
+            userB: b = genkey(); B = b * G
+            userB: S = b * A; ciphertext = AES.encrypt("seed", S)
+            userA: post(/give_seed_for, { for: "userA", public: B, totpSeed: ciphertext })
+
+            server: notif("userA", { type: "submission", data: { from: "userB", public: B, totpSeed: ciphertext }})
+            userA: S = a * B
+            userA: plaintext = AES.decrypt(ciphertext, S) = "seed"
+        */
+        event.waitUntil((async () => {
+            const forUsername = json.data.for;
+            const theirPublic = json.data.public;
+            const totpSeed = generateBase32Num(64);
+            const cache = await caches.open("deep-trust");
+            await cache.put("/seed_for_" + forUsername, new Response(JSON.stringify({ seed: totpSeed }), { status: 200, statusText: "OK" }));
             const tabs = await clients.matchAll({ includeUncontrolled: true, type: "window" });
-            if (json.type == "request") {
-                // create new key
-                const forUsername = json.data.for;
-                const totpKey = generateBase32Num(64);
-                const totpKeyEnc = bytesToBase64(AES.encrypt(totpKey, AES.expandKey(stringToBytes("aaaaaaaaaaaaaaaa")), { type: AES.Type.PCBC_CTS, IV: "aaaaaaaaaaaaaaaa" }));
-                const cache = await caches.open("deep-trust");
-                await cache.put("/key_for_" + forUsername, new Response(JSON.stringify({ key: totpKey }), { status: 200, statusText: "OK" }));
-                // send key to server
-                await (await fetch("/give_key_for", {
-                    method: "POST",
-                    headers: {
-                        "Content-Type": "application/json"
-                    },
-                    body: JSON.stringify({ for: forUsername, totpKey: totpKeyEnc })
-                })).json();
-            } else if (json.type == "submission") {
-                const fromUsername = json.data.from;
-                const totpKeyEnc = json.data.totpKey;
-                console.log(totpKeyEnc);
-                const totpKey = AES.decrypt(base64ToBytes(totpKeyEnc), AES.expandKey(stringToBytes("aaaaaaaaaaaaaaaa")), { type: AES.Type.PCBC_CTS, IV: "aaaaaaaaaaaaaaaa" });
-                console.log(totpKey);
-                const cache = await caches.open("deep-trust");
-                await cache.put("/key_from_" + fromUsername, new Response(JSON.stringify({ key: totpKey }), { status: 200, statusText: "OK" }));
-            } else if (json.type == "reload") {
-            } else return;
-            /* self.registration.showNotification("DEBUG", {
-                body: json.type,
-                icon: "/favicon.ico"
-            }); */
+            for (let i = 0; i < tabs.length; i++)
+                if (tabs[i].url == url)
+                    tabs[i].postMessage({ type: "request", for: forUsername, public: theirPublic, totpSeed });
+        })());
+    } else if (json.type == "submission") {
+        event.waitUntil((async () => {
+            const fromUsername = json.data.from;
+            const theirPublic = json.data.public;
+            const totpSeedEnc = json.data.totpSeed;
+            const tabs = await clients.matchAll({ includeUncontrolled: true, type: "window" });
+            for (let i = 0; i < tabs.length; i++)
+                if (tabs[i].url == url)
+                    tabs[i].postMessage({ type: "submission", from: fromUsername, public: theirPublic, totpSeed: totpSeedEnc });
+        })());
+    } else if (json.type == "reload") {
+        event.waitUntil((async () => {
+            const tabs = await clients.matchAll({ includeUncontrolled: true, type: "window" });
             for (let i = 0; i < tabs.length; i++)
                 if (tabs[i].url == url)
                     tabs[i].postMessage("reload");
-            navigator.setAppBadge(0).catch((err) => {});
-        }
-    })());
+        })());
+    } else return;
 });
 self.addEventListener("notificationclick", (event) => {
     event.waitUntil((async () => {
@@ -87,18 +119,18 @@ self.addEventListener("notificationclick", (event) => {
 self.addEventListener("fetch", (event) => {
     // if (event.request.method !== "GET") return;
     const url = event.request.url.replace(self.location.origin, "").split("?")[0];
-    // console.log("2:", event.request.referrer.replace(self.location.origin, "") + "\n");
+    // myLog("2:", event.request.referrer.replace(self.location.origin, "") + "\n");
     if ((event.request.referrer.replace(self.location.origin, "") != "/pwa.html")) return;
     const queryString = event.request.url.split("?")[1] || "";
     const query = (queryString.length > 0) ? Object.fromEntries(queryString.split("&").map((str) => str.split("=").map(decodeURIComponent))) : {};
     if (
         url.startsWith("/ping") || url.startsWith("/notif/subscribe")
-        || url.startsWith("/req_key_from")
+        || url.startsWith("/req_seed_from") || url.startsWith("/give_seed_for")
+        || url.startsWith("/log")
         || url.startsWith("/auth_start") || url.startsWith("/auth_from_user")
         || url.startsWith("/auth_to_user") || url.startsWith("/auth_end")
-    )
-        return;
-    if (url.startsWith("/get_keys_state")) {
+    ) return;
+    if (url.startsWith("/get_seeds_state")) {
         event.respondWith(new Promise(async (resolve) => {
             const cache = await caches.open("deep-trust");
             let cachedUserDataRes = await cache.match("/getUserData");
@@ -111,21 +143,21 @@ self.addEventListener("fetch", (event) => {
                 const friend = friends_list[i];
                 map[friend] = [];
                 // for
-                const keyForRes = await cache.match("/key_for_" + friend);
-                if (!keyForRes)
+                const seedForRes = await cache.match("/seed_for_" + friend);
+                if (!seedForRes)
                     map[friend].push("");
                 else
-                    map[friend].push(sha256(await keyForRes.text()));
+                    map[friend].push(sha256(await seedForRes.text()));
                 // from
-                const keyFromRes = await cache.match("/key_from_" + friend);
-                if (!keyFromRes)
+                const seedFromRes = await cache.match("/seed_from_" + friend);
+                if (!seedFromRes)
                     map[friend].push("");
                 else
-                    map[friend].push(sha256(await keyFromRes.text()));
+                    map[friend].push(sha256(await seedFromRes.text()));
             }
             const controller = new AbortController();
             const timeoutId = setTimeout(() => { controller.abort("timeout"); }, 1000);
-            await fetch("/get_keys_state", {
+            await fetch("/get_seeds_state", {
                 signal: controller.signal,
                 method: "POST",
                 headers: {
@@ -134,13 +166,13 @@ self.addEventListener("fetch", (event) => {
                 body: JSON.stringify({ map })
             }).then((res) => {
                 clearTimeout(timeoutId);
-                cache.put("/get_keys_state", res.clone());
+                cache.put("/get_seeds_state", res.clone());
                 resolve(res);
                 return;
             }).catch(async () => {
                 clearTimeout(timeoutId);
                 console.log("using cached data");
-                let cachedResponse = await cache.match("/get_keys_state");
+                let cachedResponse = await cache.match("/get_seeds_state");
                 if (!cachedResponse)
                     resolve(new Response(JSON.stringify({}), { status: 200, statusText: "OK" }));
                 else
@@ -154,10 +186,10 @@ self.addEventListener("fetch", (event) => {
         const cache = await caches.open("deep-trust");
         let cachedResponse = await cache.match(url);
         if (cachedResponse && !(
-            url.startsWith("/getUserData") || url.startsWith("/clear_keys_with_")
+            url.startsWith("/getUserData") || url.startsWith("/clear_seeds_with_") || url.startsWith("/set_seed_from_")
         )) { // should not be cached ever, it is just a signal to the service worker
             resolve(cachedResponse);
-            if (url.startsWith("/key_for_") || url.startsWith("/key_from_")) return;
+            if (url.startsWith("/seed_for_") || url.startsWith("/seed_from_") || url.startsWith("/set_seed_from_") || url.startsWith("/key_with_")) return;
             const controller = new AbortController();
             const timeoutId = setTimeout(() => { controller.abort("timeout"); }, 1000);
             await fetch(event.request, {
@@ -187,17 +219,27 @@ self.addEventListener("fetch", (event) => {
                     else
                         resolve(new Response("", { status: 404, statusText: "" }));
                 });
-            } else if (url.startsWith("/key_for_")) {
-                resolve(new Response(JSON.stringify({ key: undefined }), { status: 404, statusText: "MISSING" }));
-            } else if (url.startsWith("/key_from_")) {
-                resolve(new Response(JSON.stringify({ key: undefined }), { status: 404, statusText: "MISSING" }));
-            } else if (url.startsWith("/clear_keys_with_")) {
-                const name = url.replace("/clear_keys_with_", "");
+            } else if (url.startsWith("/set_seed_from_")) {
+                cache.put(url.replace("set_", ""), new Response(JSON.stringify({ seed: query.seed }), { status: 200, statusText: "OK" }));
+                resolve(new Response(JSON.stringify({}), { status: 201, statusText: "OK" }));
+            } else if (url.startsWith("/seed_for_")) {
+                resolve(new Response(JSON.stringify({ seed: undefined }), { status: 404, statusText: "MISSING" }));
+            } else if (url.startsWith("/seed_from_")) {
+                resolve(new Response(JSON.stringify({ seed: undefined }), { status: 404, statusText: "MISSING" }));
+            } else if (url.startsWith("/key_with_")) {
+                const res = new Response(JSON.stringify({
+                    key: generateBase16Num(48)
+                }), { status: 200, statusText: "OK" });
+                cache.put(url, res.clone());
+                resolve(res);
+            } else if (url.startsWith("/clear_seeds_with_")) {
+                const name = url.replace("/clear_seeds_with_", "");
                 event.waitUntil(Promise.all([
-                    cache.delete("/has_key_for_" + name),
-                    cache.delete("/key_for_" + name),
-                    cache.delete("/has_key_from_" + name),
-                    cache.delete("/key_from_" + name)
+                    cache.delete("/has_seed_for_" + name),
+                    cache.delete("/seed_for_" + name),
+                    cache.delete("/has_seed_from_" + name),
+                    cache.delete("/seed_from_" + name),
+                    cache.delete("/key_for_" + name)
                 ]));
                 resolve(new Response("true", { status: 200, statusText: "OK" }));
             } else {
@@ -213,7 +255,7 @@ self.addEventListener("fetch", (event) => {
 });
 addEventListener("message", (event) => {
     event.waitUntil(new Promise(async (resolve) => {
-        console.log("received message:", event.data);
+        myLog("received message:", event.data);
         resolve();
     }));
 });

@@ -61,6 +61,7 @@ Object.keys(sessions).forEach((id: string) => {
     const username: string = sessions[id].username;
     usernameToSessionId[username] = id;
 });
+let test: boolean = false;
 function validateSession(req: Request, res: Response): boolean {
     const cookies: {[key: string]: string} = getCookies(req);
     const sessionId: string = cookies[sessionIdCookieName];
@@ -103,13 +104,13 @@ for (let i = 0; i < users.length; i++) {
 }
 // userLink
 var userLink: [number, number][] = db.userLink || [];
-// keyHashTable
-var keyHashTable: [ string, string, number, number ][][] = db.keyHashTable || [];
+// seedHashTable
+var seedHashTable: [ string, string, number, number ][][] = db.seedHashTable || [];
 // logs
 var logs: logType[] = db.logs || [];
 // helper to save db file
 function saveDb() {
-    writeFileSync(dbFilePath, JSON.stringify({ sessions, users, logs, userLink, keyHashTable }, undefined, "    "));
+    writeFileSync(dbFilePath, JSON.stringify({ sessions, users, logs, userLink, seedHashTable }, undefined, "    "));
 }
 
 readConfig();
@@ -196,8 +197,7 @@ serverStaticSimple("favicon.ico");
 serverStaticSimple("favicon.png");
 serverStaticSimple("deeptrust-logo.png");
 serverStaticSimple("deeptrust-transition-wide.png");
-serverStaticSimple("hashLib.js");
-serverStaticSimple("AES.js");
+serverStaticSimple("ShaTotpAesEcc.js");
 serverStaticSimple("index.html");
 serverStaticSimple("investorBrief.pdf");
 serveStaticAuthedSimple("pwa.html", true);
@@ -246,9 +246,9 @@ app.get("/tryLogin", async (req: Request, res: Response) => {
     if ((typeof query.pass_hash) !== "string") { res.redirect("/login.html"); return; }
     if (query.email == "") { res.redirect("/login.html"); return; }
     if (query.pass_hash == "") { res.redirect("/login.html"); return; }
-    if (query.pass_hash == "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855") { res.redirect("/login.html"); return; }// also cannot be sha256 of empty string
+    if (query.pass_hash.toLowerCase() == "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855") { res.redirect("/login.html"); return; }// also cannot be sha256 of empty string
     const email: string = query.email as string;
-    const pass_hash: string = query.pass_hash as string;
+    const pass_hash: string = query.pass_hash.toLowerCase() as string;
     const userIndex: number|undefined = userIndexByEmail[email.toLowerCase()];
     if (userIndex == undefined) { res.redirect("/login.html"); return; }
     const user: userType = users[userIndex];
@@ -383,11 +383,10 @@ app.post("/addFriend", async (req: Request, res: Response) => {
     const session: sessionType = sessions[cookies[sessionIdCookieName]];
     const userIndex: number = userIndexByName[session.username];
     const user: userType = users[userIndex];
-    if (req.body.email.toLowerCase() == user.email) { res.json(false); return; }
+    // if (req.body.email.toLowerCase() == user.email) { res.json(false); return; }
 
     const addedUserIndex = userIndexByEmail[req.body.email.toLowerCase()];
     if (addedUserIndex == undefined) { res.json(false); return; }
-    if (addedUserIndex == userIndex) { res.json(false); return; }// cannot friend yourself
     // const addedUser: userType = users[addedUserIndex];
     // push the users username to the users friends list
     for (let i = 0; i < userLink.length; i++) {
@@ -399,72 +398,76 @@ app.post("/addFriend", async (req: Request, res: Response) => {
     reloadUser(session);
     res.json(true);
 });
-app.post("/req_key_from", async (req: Request, res: Response) => {
+app.post("/req_seed_from", async (req: Request, res: Response) => {
     if (!validateSession(req, res)) {
         res.status(401).send("");
         return;
     }
     // requested for user
     const cookies: {[key: string]: string} = getCookies(req);
-    const keyForUsername: string = sessions[cookies[sessionIdCookieName]].username;
-    const keyForUserIndex: number = userIndexByName[keyForUsername];
-    // const keyForUser: userType = users[keyForUserIndex];
+    const seedForUsername: string = sessions[cookies[sessionIdCookieName]].username;
+    const seedForUserIndex: number = userIndexByName[seedForUsername];
     // requested from user
     if ((typeof req.body.from) !== "string") { res.json(false); return; }
-    const keyFromUsername: string = req.body.from;
-    const keyFromUserIndex: number = userIndexByName[keyFromUsername];
-    if (keyFromUserIndex == undefined) { res.json(false); return; }
-    // const keyFromUser: userType = users[keyFromUserIndex];
+    const seedFromUsername: string = req.body.from;
+    const seedFromUserIndex: number = userIndexByName[seedFromUsername];
+    if (seedFromUserIndex == undefined) { res.json(false); return; }
     // they must have both added each other
     let friendedEachOther: [boolean, boolean] = [ false, false ];
     for (let i = 0; i < userLink.length; i++) {
         const link = userLink[i];
-        if ((link[0] == keyFromUserIndex) && (link[1] == keyForUserIndex)) friendedEachOther[0] = true;
-        else if ((link[1] == keyFromUserIndex) && (link[0] == keyForUserIndex)) friendedEachOther[1] = true;
+        if ((link[0] == seedFromUserIndex) && (link[1] == seedForUserIndex)) friendedEachOther[0] = true;
+        if ((link[1] == seedFromUserIndex) && (link[0] == seedForUserIndex)) friendedEachOther[1] = true;
     }
     if (!friendedEachOther[0] || !friendedEachOther[1]) { res.json(false); return; }
-    // request key
-    const keyFromSessionId: string = usernameToSessionId[keyFromUsername];
-    pushUser(sessions[keyFromSessionId], { type: "request", data: { for: keyForUsername } });
-    // notifyUser(keyForUsername, "requested", "BODY");
+    // public seed must exist and have correct length
+    // if ((typeof req.body.public) !== "string") { res.json(false); return; }
+    // if (req.body.public.length !== 194) { res.json(false); return; }
+    console.log("/req_seed_from,", seedForUsername, ":", req.body);
+    // request seed
+    const seedFromSessionId: string = usernameToSessionId[seedFromUsername];
+    pushUser(sessions[seedFromSessionId], { type: "request", data: { for: seedForUsername, public: req.body.public } });
+    // notifyUser(seedForUsername, "requested", "BODY");
     res.json(true);
 });
-app.post("/give_key_for", async (req: Request, res: Response) => {
+app.post("/give_seed_for", async (req: Request, res: Response) => {
     if (!validateSession(req, res)) {
         res.status(401).send("");
         return;
     }
     // requested from user
-    const cookies: {[key: string]: string} = getCookies(req);
-    const keyFromUsername: string = sessions[cookies[sessionIdCookieName]].username;
-    const keyFromUserIndex: number = userIndexByName[keyFromUsername];
-    // const keyFromUser: userType = users[keyFromUserIndex];
+    const cookies: {[seed: string]: string} = getCookies(req);
+    const seedFromUsername: string = sessions[cookies[sessionIdCookieName]].username;
+    const seedFromUserIndex: number = userIndexByName[seedFromUsername];
+    // const seedFromUser: userType = users[seedFromUserIndex];
     // requested for user
     if ((typeof req.body.for) !== "string") { res.json(false); return; }
-    const keyForUsername: string = req.body.for;
-    const keyForUserIndex: number = userIndexByName[keyForUsername];
-    if (keyForUserIndex == undefined) { res.json(false); return; }
-    // const keyForUser: userType = users[keyForUserIndex];
+    const seedForUsername: string = req.body.for;
+    const seedForUserIndex: number = userIndexByName[seedForUsername];
+    if (seedForUserIndex == undefined) { res.json(false); return; }
+    // const seedForUser: userType = users[seedForUserIndex];
     // they must have both added each other
     let friendedEachOther: [boolean, boolean] = [ false, false ];
     for (let i = 0; i < userLink.length; i++) {
         const link = userLink[i];
-        if ((link[0] == keyFromUserIndex) && (link[1] == keyForUserIndex)) friendedEachOther[0] = true;
-        else if ((link[1] == keyFromUserIndex) && (link[0] == keyForUserIndex)) friendedEachOther[1] = true;
+        if ((link[0] == seedFromUserIndex) && (link[1] == seedForUserIndex)) friendedEachOther[0] = true;
+        if ((link[1] == seedFromUserIndex) && (link[0] == seedForUserIndex)) friendedEachOther[1] = true;
     }
     if (!friendedEachOther[0] || !friendedEachOther[1]) { res.json(false); return; }
-    // key must exist
-    if ((typeof req.body.totpKey) !== "string") { res.json(false); return; }
-    // send key over
-    const keyForSessionId: string = usernameToSessionId[keyForUsername];
-    /* console.log(keyFromUsername + " -> " + keyForUsername);
-    console.log("   key: " + req.body.totpKey);*/
-    pushUser(sessions[keyForSessionId], { type: "submission", data: { from: keyFromUsername, totpKey: req.body.totpKey } });
-    // notifyUser(keyForUsername, "received", "BODY");
+    // totp seed must exist
+    if ((typeof req.body.totpSeed) !== "string") { res.json(false); return; }
+    // public seed must exist and have correct length
+    // if ((typeof req.body.public) !== "string") { res.json(false); return; }
+    // if (req.body.public.length !== 194) { res.json(false); return; }
+    console.log("/give_seed_for,", seedFromUsername, ":", req.body);
+    // send seed over
+    const seedForSessionId: string = usernameToSessionId[seedForUsername];
+    pushUser(sessions[seedForSessionId], { type: "submission", data: { from: seedFromUsername, totpSeed: req.body.totpSeed, public: req.body.public } });
+    // notifyUser(seedForUsername, "received", "BODY");
     res.json(true);
 });
 
-app.post("/get_keys_state", async (req: Request, res: Response) => {
+app.post("/get_seeds_state", async (req: Request, res: Response) => {
     if (!validateSession(req, res)) {
         res.status(401).send("");
         return;
@@ -481,7 +484,7 @@ app.post("/get_keys_state", async (req: Request, res: Response) => {
     let returnValue: { [key: string]: [ number, number ]} = Object.fromEntries(entries.map(([ friendUsername, hashes ]: [ string, [ string, string ]]) => {
         const friendIndex: number = userIndexByName[friendUsername];
         if (friendIndex == undefined) return [ friendUsername, [ 0, 0 ] ];
-        const inverseHashes: [ string, string, number, number ] = (keyHashTable[friendIndex] ?? [])[userIndex] ?? [ "", "" ];
+        var inverseHashes: [ string, string, number, number ] = (seedHashTable[friendIndex] ?? [])[userIndex] ?? [ "", "" ];
         let status1: number = 0;
         let status2: number = 0;
         let friendStatus1: number = 0;
@@ -504,14 +507,30 @@ app.post("/get_keys_state", async (req: Request, res: Response) => {
             if (inverseHashes[0].length === 0) friendStatus1 = 0;
             else friendStatus1 = 1;
         }
-        keyHashTable[userIndex] ??= [];
-        keyHashTable[userIndex][friendIndex] = [ ...hashes, status1, status2 ];
-        keyHashTable[friendIndex] ??= [];
-        keyHashTable[friendIndex][userIndex] = [ inverseHashes[0], inverseHashes[1], friendStatus1, friendStatus2 ];
+        seedHashTable[userIndex] ??= [];
+        seedHashTable[userIndex][friendIndex] = [ ...hashes, status1, status2 ];
+        seedHashTable[friendIndex] ??= [];
+        inverseHashes = (seedHashTable[friendIndex] ?? [])[userIndex] ?? [ "", "" ];
+        seedHashTable[friendIndex][userIndex] = [ inverseHashes[0], inverseHashes[1], friendStatus1, friendStatus2 ];
         if ((inverseHashes[2] != friendStatus1) || (inverseHashes[2] != friendStatus1)) reloadUser(sessions[usernameToSessionId[friendUsername]]);
         return [ friendUsername, [ status1, status2 ] ];
     }));
     res.json(returnValue);
+    saveDb();
+});
+let lastLog: string = "";
+app.post("/log", async (req: Request, res: Response) => {
+    if (!validateSession(req, res)) {
+        res.status(401).send("");
+        console.log("ERROR");
+        return;
+    }
+    // requested from user
+    const cookies: {[key: string]: string} = getCookies(req);
+    const username: string = sessions[cookies[sessionIdCookieName]].username;
+    if (lastLog !== username) { lastLog = username; console.log(username + ":"); }
+    console.log("   ", ...req.body.message);
+    res.json({});
     saveDb();
 });
 

@@ -75,6 +75,9 @@ async function subscribeNotif() {
             }
         })
     }).then((data) => {
+        const cookies = Object.fromEntries(document.cookie.split("; ").map((str) => str.split("=")));
+        if (cookies.isSubbed !== "false") document.getElementById("Subscribe").className = "hidden";
+        else document.getElementById("Subscribe").className = "mr-1";
         data.text().then((text) => {
             // console.log(text);
         });

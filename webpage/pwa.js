@@ -1,3 +1,13 @@
+const myLog = async (...message) => {
+    await fetch("/log", {
+        method: "POST",
+        headers: {
+            "Content-Type": "application/json"
+        },
+        body: JSON.stringify({ message })
+    });
+    console.log(...message);
+};
 // #region sw stuff
 let swReg = undefined;
 let swReady = false;
@@ -37,38 +47,64 @@ async function getJSON(path) {
 }
 async function postJSON(path, data) {
     try {
+        const controller = new AbortController();
+        const timeout = setTimeout(() => controller.abort(), 1000);
         const res = await fetch(path, {
             method: "POST",
             headers: {
-                "Content-Type": "application/json"
+                "Content-Type": "application/json",
+                Accept: "application/json"
             },
-            body: JSON.stringify(data)
+            body: JSON.stringify(data),
+            signal: controller.signal
         });
+        clearTimeout(timeout);
         if (!res.ok) throw Error("");
         return await res.json();
     } catch (err) {
-        window.location.pathname = "/login.html";
-        throw Error("");
+        console.log(err);
+        // window.location.pathname = "/login.html";
+    }
+}
+async function postURL(path, data) {
+    try {
+        const controller = new AbortController();
+        const timeout = setTimeout(() => controller.abort(), 1000);
+        const res = await fetch(path, {
+            method: "POST",
+            headers: {
+                "Content-Type": "application/x-www-form-urlencoded",
+                Accept: "application/json"
+            },
+            body: data,
+            signal: controller.signal
+        });
+        clearTimeout(timeout);
+        if (!res.ok) throw Error("");
+        return await res.json();
+    } catch (err) {
+        console.log(err);
+        // window.location.pathname = "/login.html";
     }
 }
 // #endregion fetch stuff
 
-// #region key stuff
-async function getKeysState() {
+// #region seed stuff
+async function getSeedsState() {
     if (!swReady) return false;
-    return await getJSON("/get_keys_state");
+    return await getJSON("/get_seeds_state");
 }
 async function getCodeFor() {
     if (!swReady) return false;
-    const key = (await getJSON("/key_for_" + selectedUser)).key;
-    if (key) return getTOTP(key);
+    const seed = (await getJSON("/seed_for_" + selectedUser)).seed;
+    if (seed) return getTOTP(seed);
     else return undefined;
 }
 async function validateCodeFrom() {
     const el = document.getElementById("code_from");
     const code = el.value;
     if (
-        !swReady || (code.length != 6) || !checkTotp((await getJSON("/key_from_" + selectedUser)).key, code)
+        !swReady || (code.length != 6) || !checkTotp((await getJSON("/seed_from_" + selectedUser)).seed, code)
     ) {
         el.style.color = "red";
         return false;
@@ -77,11 +113,11 @@ async function validateCodeFrom() {
         return true;
     }
 }
-async function clearKeysWith() {
-    const output = await getJSON("/clear_keys_with_" + selectedUser);
+async function clearSeedsWith() {
+    const output = await getJSON("/clear_seeds_with_" + selectedUser);
     if (output) reload();
 }
-// #endregion key stuff
+// #endregion seed stuff
 
 async function attemptAddFriend() {
     const el = document.getElementById("addFriendEmail");
@@ -90,8 +126,13 @@ async function attemptAddFriend() {
     if (output) el.value = "";
     else el.style.color = "red";
 }
-async function requestKeyFrom() {
-    await postJSON("/req_key_from", { from: selectedUser });
+async function requestSeedFrom() {
+    const privateKey = (await getJSON("/key_with_" + selectedUser)).key;
+    await myLog("myPrivate:", privateKey);
+    const publicKey = "";// getPublic(privateKey);
+    await myLog("myPublic:", publicKey);
+    await postJSON("/req_seed_from", { from: selectedUser, public: publicKey });
+    await myLog("end");
 }
 
 // #region authentication functions
@@ -147,26 +188,11 @@ async function reload() {
                 logStr += log.from + " -> " + myUsername;
         }
         if (log.state == 2) {
-            // if (log.expiration > time)
-            //     logStr += " until now.";
-            // else {
-            /* logStr += " for ";
-            const diff = log.expiration - log.time;
-            const s = Math.floor(diff / 1000);
-            const m = Math.floor(s / 60);
-            const h = Math.floor(m / 60);
-            if (h) logStr += h + "hrs, ";
-            if (h || m) logStr += (m % 60) + "mins, ";
-            if (h || m || s) logStr += (s % 60) + "secs.";
-            if (!h && !m && !s) logStr += ms + "ms";
-            // }*/
             logsMap[logWith] ||= [];
             logsMap[logWith].push(logStr);
         }
     }
-    // const hasKeysFor = Object.fromEntries((await Promise.all(friends_list.map((username) => getHasKeyFor(username)))).map((hasKey, i) => [ friends_list[i], hasKey ]));
-    // const hasKeysFrom = Object.fromEntries((await Promise.all(friends_list.map((username) => getHasKeyFrom(username)))).map((hasKey, i) => [ friends_list[i], hasKey ]));
-    const keysState = await getKeysState();// keysState["friend"][ "key1", "key2"] -> key for friend is "key1", key from friend is "key2"
+    const seedsState = await getSeedsState();// seedsState["friend"][ "seed1", "seed2"] -> seed for friend is "seed1", seed from friend is "seed2"
     // create friends list
     const friends_list_element = document.getElementById("friends_list");
     friends_list_element.innerHTML = "";
@@ -180,7 +206,7 @@ async function reload() {
         // if (stateMap[username] && (stateMap[username][1] == 2)) friend.style["border-color"] = "green";
         friend.innerHTML = "<div class=\"dot mr-1 " + (online_list[i] ? "green" : "red") + "\"></div>";
         friend.innerHTML += "<div" + ((username == selectedUser) ? " class='bold h3'" : "") + " style='text-align: left; flex-grow: 5'>" + username + "<div>";
-        friend.innerHTML += "<div><div class=\"dot mx-0_5 " + ((keysState[username][0] === 0) ? "red" : ((keysState[username][0] === 2) ? "green" : "yellow")) + "\"></div>-><div class=\"dot mx-0_5 " + ((keysState[username][1] === 0) ? "red" : ((keysState[username][1] === 2) ? "green" : "yellow")) + "\"></div></div>";
+        friend.innerHTML += "<div><div class=\"dot mx-0_5 " + ((seedsState[username][0] === 0) ? "red" : ((seedsState[username][0] === 2) ? "green" : "yellow")) + "\"></div>-><div class=\"dot mx-0_5 " + ((seedsState[username][1] === 0) ? "red" : ((seedsState[username][1] === 2) ? "green" : "yellow")) + "\"></div></div>";
         friend.addEventListener("click", () => {
             if (username != selectedUser) {
                 selectedUser = username;
@@ -192,10 +218,10 @@ async function reload() {
     // set buttons for authentication based on state
     const authInputs = document.getElementById("auth_inputs");
     authInputs.innerHTML = "";
-    if ((keysState[selectedUser][0] != 0) || (keysState[selectedUser][1] != 0)) {
-        authInputs.innerHTML += "<input class=\"w-75p mb-1\" type=\"button\" value=\"Clear\" onclick='clearKeysWith()'>";
+    if ((seedsState[selectedUser][0] != 0) || (seedsState[selectedUser][1] != 0)) {
+        authInputs.innerHTML += "<input class=\"w-75p mb-1\" type=\"button\" value=\"Clear\" onclick='clearSeedsWith()'>";
     }
-    if ((keysState[selectedUser][0] == 2) && (keysState[selectedUser][1] == 2)) {
+    if ((seedsState[selectedUser][0] == 2) && (seedsState[selectedUser][1] == 2)) {
         const test = stateMap[selectedUser];
         if ((test == undefined) || (test[1] == 2)) {
             authInputs.innerHTML += "<input class='w-75p' type=\"button\" " + " value=\"Start auth\" onclick='authStart()'>";
@@ -217,8 +243,8 @@ async function reload() {
         }//  else if (test[1] == 2) {
         //     authInputs.innerHTML += "<input class='w-75p' type=\"button\" " + " value=\"End auth\" onclick='authEnd()'>";
         // }
-    } else if (keysState[selectedUser][1] == 0)
-        authInputs.innerHTML += "<input class=\"w-75p mb-1\" type=\"button\" value=\"Request Key\" onclick='requestKeyFrom()'>";
+    } else if (seedsState[selectedUser][1] == 0)
+        authInputs.innerHTML += "<input class=\"w-75p mb-1\" type=\"button\" value=\"Request Key\" onclick='requestSeedFrom()'>";
     // set logs
     const logDiv = document.getElementById("logs");
     logDiv.innerHTML = (logsMap[selectedUser] || []).join("<br>") || "No logs found.";
@@ -248,6 +274,52 @@ onSwReady(async () => {
         pending = false;
     }, 1450);
     navigator.serviceWorker.addEventListener("message", (event) => {
-        if (event.data == "reload") reload();
+        if (((typeof event.data) == "string") && (event.data == "reload"))
+            reload();
+        else if (event.data.type == "request") {
+            (async () => {
+                const forUsername = event.data.for;
+                const myPrivate = (await getJSON("/key_with_" + selectedUser)).key;
+                await myLog("myPrivate:", myPrivate);
+                const myPublic = "";// getPublic(myPrivate);
+                await myLog("myPublic:", myPublic);
+                const theirPublic = event.data.public;
+                await myLog("theirPublic:", theirPublic);
+                const totpSeed = event.data.totpSeed;
+                await myLog("seed:", totpSeed);
+                let sharedkey = "aaaaaaaaaaaaaaaa";// pointToHex(multPoint(bytesToWords(base16ToBytes(myPrivate)), pointFromHex(theirPublic), a)).slice(2, 18);
+                await myLog("ourShared:", sharedkey);
+                const totpSeedEnc = bytesToBase64(AES.encrypt(totpSeed, AES.expandKey(stringToBytes(sharedkey)), { type: AES.Type.PCBC_CTS, IV: "bbbbbbbbbbbbbbbb" }));
+                await myLog("totp:", sharedkey);
+                // send seed to server
+                const controller = new AbortController();
+                const timeout = setTimeout(() => controller.abort(), 1000);
+                await fetch("/give_seed_for", {
+                    method: "POST",
+                    headers: {
+                        "Content-Type": "application/json"
+                    },
+                    body: JSON.stringify({ for: forUsername, totpSeed: totpSeedEnc, public: myPublic }),
+                    signal: controller.signal
+                });
+                clearTimeout(timeout);
+                reload();
+            })();
+        } else if (event.data.type == "submission") {
+            (async () => {
+                const fromUsername = event.data.from;
+                const myPrivate = (await getJSON("/key_with_" + selectedUser)).key;
+                await myLog("myPrivate:", myPrivate);
+                const theirPublic = "";// event.data.public;
+                await myLog("theirPublic:", theirPublic);
+                const totpSeedEnc = event.data.totpSeed;
+                let ourShared = "aaaaaaaaaaaaaaaa";// pointToHex(multPoint(bytesToWords(base16ToBytes(myPrivate)), pointFromHex(theirPublic), a)).slice(2, 18);
+                await myLog("ourShared:", ourShared);
+                const totpSeed = AES.decrypt(base64ToBytes(totpSeedEnc), AES.expandKey(stringToBytes(ourShared)), { type: AES.Type.PCBC_CTS, IV: "bbbbbbbbbbbbbbbb" });
+                await myLog("seed:", totpSeed);
+                await postJSON("/set_seed_from_" + fromUsername + "?seed=" + encodeURIComponent(totpSeed), {});
+                reload();
+            })();
+        }
     });
 });
