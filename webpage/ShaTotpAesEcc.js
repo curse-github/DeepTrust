@@ -1828,7 +1828,7 @@ function getPublic(privateStr) {
     const privateKey = bytesToWords(base16ToBytes(privateStr));
     for (let i = privateKey.length; i < 12; i++)
         privateKey.unshift(0);
-    const publicKey = multPoint(privateKey, G, a, debug);
+    const publicKey = multPoint(privateKey, G, a);
     const publicStr = pointToHex(publicKey);
     return publicStr;
 }

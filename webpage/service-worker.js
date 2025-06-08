@@ -30,15 +30,9 @@ self.addEventListener("unhandledrejection", (event) => {
     // console.error("Global unhandled rejection:", event.reason);
 });
 self.addEventListener("push", (event) => {
-    let json = { type: "" };
-    try {
-        json = event.data.json();
-    } catch (err) {
-        myLog("\x1b[31m", err, "\x1b[0m");
-        return;
-    }
-    if (json.type == "notification") {
-        event.waitUntil((async () => {
+    let json = event.data.json();
+    event.waitUntil((async () => {
+        if (json.type == "notification") {
             const windows = await clients.matchAll({ includeUncontrolled: true, type: "window" });
             for (let i = 0; i < windows.length; i++)
                 if (windows[i].focused && (windows[i].url == url)) return;
@@ -46,60 +40,13 @@ self.addEventListener("push", (event) => {
                 body: json.data.body,
                 icon: "/favicon.ico"
             });
-        })());
-    } else if (json.type == "request") {
-        /*
-        old way: userA requesting seed from userB
-            userA: post(/req_seed_from, { from: "userB" })
-
-            server: notif("userB", { type: "request", data: { for: "userA" }})
-            userB: ciphertext = AES.encrypt("seed", "aaaaaaaaaaaaaaaa")
-            userB: post(/give_seed_for, { for: "userA", totpSeed: ciphertext })
-
-            server: notif("userA", { type: "submission", data: { from: "userB", totpSeed: ciphertext }})
-            userA: plaintext = AES.decrypt(ciphertext, "aaaaaaaaaaaaaaaa") = "seed"
-        new way: userA requesting seed from userB
-            userA: a = genkey(); A = a * G
-            userA: post(/req_seed_from, { from: "userB", public: A })
-
-            server: notif("userB", { type: "request", data: { for: "userA", public: A }})
-            userB: b = genkey(); B = b * G
-            userB: S = b * A; ciphertext = AES.encrypt("seed", S)
-            userA: post(/give_seed_for, { for: "userA", public: B, totpSeed: ciphertext })
-
-            server: notif("userA", { type: "submission", data: { from: "userB", public: B, totpSeed: ciphertext }})
-            userA: S = a * B
-            userA: plaintext = AES.decrypt(ciphertext, S) = "seed"
-        */
-        event.waitUntil((async () => {
-            const forUsername = json.data.for;
-            const theirPublic = json.data.public;
-            const totpSeed = generateBase32Num(64);
-            const cache = await caches.open("deep-trust");
-            await cache.put("/seed_for_" + forUsername, new Response(JSON.stringify({ seed: totpSeed }), { status: 200, statusText: "OK" }));
-            const tabs = await clients.matchAll({ includeUncontrolled: true, type: "window" });
-            for (let i = 0; i < tabs.length; i++)
-                if (tabs[i].url == url)
-                    tabs[i].postMessage({ type: "request", for: forUsername, public: theirPublic, totpSeed });
-        })());
-    } else if (json.type == "submission") {
-        event.waitUntil((async () => {
-            const fromUsername = json.data.from;
-            const theirPublic = json.data.public;
-            const totpSeedEnc = json.data.totpSeed;
-            const tabs = await clients.matchAll({ includeUncontrolled: true, type: "window" });
-            for (let i = 0; i < tabs.length; i++)
-                if (tabs[i].url == url)
-                    tabs[i].postMessage({ type: "submission", from: fromUsername, public: theirPublic, totpSeed: totpSeedEnc });
-        })());
-    } else if (json.type == "reload") {
-        event.waitUntil((async () => {
+        } else if (json.type == "reload") {
             const tabs = await clients.matchAll({ includeUncontrolled: true, type: "window" });
             for (let i = 0; i < tabs.length; i++)
                 if (tabs[i].url == url)
                     tabs[i].postMessage("reload");
-        })());
-    } else return;
+        } else return;
+    })());
 });
 self.addEventListener("notificationclick", (event) => {
     event.waitUntil((async () => {
@@ -125,8 +72,8 @@ self.addEventListener("fetch", (event) => {
     const query = (queryString.length > 0) ? Object.fromEntries(queryString.split("&").map((str) => str.split("=").map(decodeURIComponent))) : {};
     if (
         url.startsWith("/ping") || url.startsWith("/notif/subscribe")
-        || url.startsWith("/req_seed_from") || url.startsWith("/give_seed_for")
-        || url.startsWith("/log")
+        || url.startsWith("/seed_transfer_one") || url.startsWith("/seed_transfer_two") || url.startsWith("/seed_transfer_three")
+        || url.startsWith("/log") || url.startsWith("/getMessages")
         || url.startsWith("/auth_start") || url.startsWith("/auth_from_user")
         || url.startsWith("/auth_to_user") || url.startsWith("/auth_end")
     ) return;
@@ -186,7 +133,8 @@ self.addEventListener("fetch", (event) => {
         const cache = await caches.open("deep-trust");
         let cachedResponse = await cache.match(url);
         if (cachedResponse && !(
-            url.startsWith("/getUserData") || url.startsWith("/clear_seeds_with_") || url.startsWith("/set_seed_from_")
+            url.startsWith("/getUserData") || url.startsWith("/clear_seeds_with_")
+            || url.startsWith("/set_seed_from_") || url.startsWith("/create_seed_for_")
         )) { // should not be cached ever, it is just a signal to the service worker
             resolve(cachedResponse);
             if (url.startsWith("/seed_for_") || url.startsWith("/seed_from_") || url.startsWith("/set_seed_from_") || url.startsWith("/key_with_")) return;
@@ -222,6 +170,11 @@ self.addEventListener("fetch", (event) => {
             } else if (url.startsWith("/set_seed_from_")) {
                 cache.put(url.replace("set_", ""), new Response(JSON.stringify({ seed: query.seed }), { status: 200, statusText: "OK" }));
                 resolve(new Response(JSON.stringify({}), { status: 201, statusText: "OK" }));
+            } else if (url.startsWith("/create_seed_for_")) {
+                cache.put(url.replace("create_", ""), new Response(JSON.stringify({ seed: generateBase32Num(64) }), { status: 200, statusText: "OK" }))
+                    .then(() => {
+                        resolve(new Response(JSON.stringify({ }), { status: 200, statusText: "OK" }));
+                    });
             } else if (url.startsWith("/seed_for_")) {
                 resolve(new Response(JSON.stringify({ seed: undefined }), { status: 404, statusText: "MISSING" }));
             } else if (url.startsWith("/seed_from_")) {
@@ -235,9 +188,7 @@ self.addEventListener("fetch", (event) => {
             } else if (url.startsWith("/clear_seeds_with_")) {
                 const name = url.replace("/clear_seeds_with_", "");
                 event.waitUntil(Promise.all([
-                    cache.delete("/has_seed_for_" + name),
                     cache.delete("/seed_for_" + name),
-                    cache.delete("/has_seed_from_" + name),
                     cache.delete("/seed_from_" + name),
                     cache.delete("/key_for_" + name)
                 ]));

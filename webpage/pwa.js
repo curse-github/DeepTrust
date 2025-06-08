@@ -115,7 +115,7 @@ async function validateCodeFrom() {
 }
 async function clearSeedsWith() {
     const output = await getJSON("/clear_seeds_with_" + selectedUser);
-    if (output) reload();
+    if (output) reloadScreen();
 }
 // #endregion seed stuff
 
@@ -126,13 +126,14 @@ async function attemptAddFriend() {
     if (output) el.value = "";
     else el.style.color = "red";
 }
-async function requestSeedFrom() {
-    const privateKey = (await getJSON("/key_with_" + selectedUser)).key;
-    await myLog("myPrivate:", privateKey);
-    const publicKey = "";// getPublic(privateKey);
-    await myLog("myPublic:", publicKey);
-    await postJSON("/req_seed_from", { from: selectedUser, public: publicKey });
-    await myLog("end");
+async function requestSeedFrom(fromUsername) {
+    // await myLog("start");
+    const privateKey = (await getJSON("/key_with_" + fromUsername)).key;
+    // await myLog("myPrivate:", privateKey);
+    const publicKey = getPublic(privateKey);
+    // await myLog("myPublic:", publicKey);
+    await postJSON("/seed_transfer_one", { from: fromUsername, public: publicKey });
+    // await myLog("end");
 }
 
 // #region authentication functions
@@ -150,9 +151,89 @@ async function authToUser() {
 }*/
 // #endregion authentication functions
 
+async function checkMessages() {
+    let { reload, messages } = await getJSON("/getMessages");
+    for (let i = 0; i < messages.length; i++) {
+        const message = messages[i];
+        const IV = "cccccccccccccccc";
+        if (message.type == "seed_one") {
+            /*
+                old old way: userA requesting seed from userB
+                    userA: post(/req_seed_from, { from: "userB" })
+
+                    server: notif("userB", { type: "request", data: { for: "userA" }})
+                    userB: ciphertext = AES.encrypt("seed", "aaaaaaaaaaaaaaaa")
+                    userB: post(/give_seed_for, { for: "userA", totpSeed: ciphertext })
+
+                    server: notif("userA", { type: "submission", data: { from: "userB", totpSeed: ciphertext }})
+                    userA: plaintext = AES.decrypt(ciphertext, "aaaaaaaaaaaaaaaa") = "seed"
+                old way: userA requesting seed from userB
+                    userA: a = genkey(); A = a * G
+                    userA: post(/req_seed_from, { from: "userB", public: A })
+
+                    server: notif("userB", { type: "request", data: { for: "userA", public: A }})
+                    userB: b = genkey(); B = b * G
+                    userB: S = b * A; ciphertext = AES.encrypt("seed", S)
+                    userA: post(/give_seed_for, { for: "userA", public: B, totpSeed: ciphertext })
+
+                    server: notif("userA", { type: "submission", data: { from: "userB", public: B, totpSeed: ciphertext }})
+                    userA: S = a * B
+                    userA: plaintext = AES.decrypt(ciphertext, S) = "seed"
+                new way: userA requesting seed from userB
+                    placeholder
+            */
+            // parse data and calculate keys
+            const forUsername = message.data.for;
+            const myPrivate = (await getJSON("/key_with_" + forUsername)).key;
+            const myPublic = getPublic(myPrivate);
+            const theirPublic = message.data.public;
+            let ourShared = pointToHex(multPoint(bytesToWords(base16ToBytes(myPrivate)), pointFromHex(theirPublic), a)).slice(2, 18);
+            // create, encode, and send seed
+            await getJSON("/create_seed_for_" + forUsername);
+            const totpSeedFor = (await getJSON("/seed_for_" + forUsername)).seed;
+            const totpSeedForEnc = bytesToBase64(AES.encrypt(totpSeedFor, AES.expandKey(stringToBytes(ourShared)), { type: AES.Type.PCBC_CTS, IV }));
+            await postJSON("/seed_transfer_two", { for: forUsername, totpSeed: totpSeedForEnc, public: myPublic });
+            reloadScreen();
+            reload = false;
+        } else if (message.type == "seed_two") {
+            // parse data and calculate keys
+            const fromUsername = message.data.from;
+            const myPrivate = (await getJSON("/key_with_" + fromUsername)).key;
+            const myPublic = getPublic(myPrivate);
+            const theirPublic = message.data.public;
+            const totpSeedFromEnc = message.data.totpSeed;
+            let ourShared = pointToHex(multPoint(bytesToWords(base16ToBytes(myPrivate)), pointFromHex(theirPublic), a)).slice(2, 18);
+            // decode seed
+            const totpSeedFrom = AES.decrypt(base64ToBytes(totpSeedFromEnc), AES.expandKey(stringToBytes(ourShared)), { type: AES.Type.PCBC_CTS, IV });
+            await postJSON("/set_seed_from_" + fromUsername + "?seed=" + encodeURIComponent(totpSeedFrom), {});
+            // create and encode seed
+            await getJSON("/create_seed_for_" + fromUsername);
+            const totpSeedFor = (await getJSON("/seed_for_" + fromUsername)).seed;
+            const totpSeedForEnc = bytesToBase64(AES.encrypt(totpSeedFor, AES.expandKey(stringToBytes(ourShared)), { type: AES.Type.PCBC_CTS, IV }));
+            await postJSON("/seed_transfer_three", { for: fromUsername, totpSeed: totpSeedForEnc, public: myPublic });
+            reloadScreen();
+            reload = false;
+        } else if (message.type == "seed_three") {
+            // parse data and calculate keys
+            const fromUsername = message.data.from;
+            const myPrivate = (await getJSON("/key_with_" + fromUsername)).key;
+            const theirPublic = message.data.public;
+            const totpSeedEnc = message.data.totpSeed;
+            let ourShared = pointToHex(multPoint(bytesToWords(base16ToBytes(myPrivate)), pointFromHex(theirPublic), a)).slice(2, 18);
+            // decode seed
+            const totpSeed = AES.decrypt(base64ToBytes(totpSeedEnc), AES.expandKey(stringToBytes(ourShared)), { type: AES.Type.PCBC_CTS, IV });
+            await postJSON("/set_seed_from_" + fromUsername + "?seed=" + encodeURIComponent(totpSeed), {});
+
+            reloadScreen();
+            reload = false;
+        }
+    }
+    if (reload) reloadScreen();
+}
+
 let myUsername = "";
 let selectedUser = "";
-async function reload() {
+async function reloadScreen() {
     const data = await getJSON("/getUserData");
     if (data == undefined) throw new Error("");
     const { friends_list, online_list, logs, online } = data;
@@ -202,7 +283,6 @@ async function reload() {
         friend.className = "flex flex-row flex-centery flex-space pl-1 pr-1 border br-5 my-0_5 mx-0_5 fw-normal h4";
         friend.style["border-width"] = "2px";
         if (username == selectedUser) friend.className += " glow";
-        // friend.style["border-color"] = "red";
         // if (stateMap[username] && (stateMap[username][1] == 2)) friend.style["border-color"] = "green";
         friend.innerHTML = "<div class=\"dot mr-1 " + (online_list[i] ? "green" : "red") + "\"></div>";
         friend.innerHTML += "<div" + ((username == selectedUser) ? " class='bold h3'" : "") + " style='text-align: left; flex-grow: 5'>" + username + "<div>";
@@ -210,7 +290,7 @@ async function reload() {
         friend.addEventListener("click", () => {
             if (username != selectedUser) {
                 selectedUser = username;
-                reload();
+                reloadScreen();
             }
         });
         friends_list_element.appendChild(friend);
@@ -244,13 +324,15 @@ async function reload() {
         //     authInputs.innerHTML += "<input class='w-75p' type=\"button\" " + " value=\"End auth\" onclick='authEnd()'>";
         // }
     } else if (seedsState[selectedUser][1] == 0)
-        authInputs.innerHTML += "<input class=\"w-75p mb-1\" type=\"button\" value=\"Request Key\" onclick='requestSeedFrom()'>";
+        authInputs.innerHTML += "<input class=\"w-75p mb-1\" type=\"button\" value=\"Request Key\" onclick='requestSeedFrom(selectedUser)'>";
+
+
     // set logs
     const logDiv = document.getElementById("logs");
     logDiv.innerHTML = (logsMap[selectedUser] || []).join("<br>") || "No logs found.";
 }
 onSwReady(async () => {
-    reload();
+    reloadScreen();
     setTimeout(() => {
         setInterval(async () => {
             const el = document.getElementById("code_for");
@@ -265,61 +347,11 @@ onSwReady(async () => {
         }, oneTimeDuration);
     }, oneTimeDuration - ((new Date()).getTime() % oneTimeDuration));
     // ping server every little less than 1.5 seconds
-    let pending = false;
     setInterval(async () => {
-        if (pending) return;
-        pending = true;
-        const res = await fetch("/ping", { method: "POST", mode: "no-cors" });
-        if (!res.ok) window.location.pathname = "/login.html";
-        pending = false;
+        checkMessages();
     }, 1450);
     navigator.serviceWorker.addEventListener("message", (event) => {
-        if (((typeof event.data) == "string") && (event.data == "reload"))
-            reload();
-        else if (event.data.type == "request") {
-            (async () => {
-                const forUsername = event.data.for;
-                const myPrivate = (await getJSON("/key_with_" + selectedUser)).key;
-                await myLog("myPrivate:", myPrivate);
-                const myPublic = "";// getPublic(myPrivate);
-                await myLog("myPublic:", myPublic);
-                const theirPublic = event.data.public;
-                await myLog("theirPublic:", theirPublic);
-                const totpSeed = event.data.totpSeed;
-                await myLog("seed:", totpSeed);
-                let sharedkey = "aaaaaaaaaaaaaaaa";// pointToHex(multPoint(bytesToWords(base16ToBytes(myPrivate)), pointFromHex(theirPublic), a)).slice(2, 18);
-                await myLog("ourShared:", sharedkey);
-                const totpSeedEnc = bytesToBase64(AES.encrypt(totpSeed, AES.expandKey(stringToBytes(sharedkey)), { type: AES.Type.PCBC_CTS, IV: "bbbbbbbbbbbbbbbb" }));
-                await myLog("totp:", sharedkey);
-                // send seed to server
-                const controller = new AbortController();
-                const timeout = setTimeout(() => controller.abort(), 1000);
-                await fetch("/give_seed_for", {
-                    method: "POST",
-                    headers: {
-                        "Content-Type": "application/json"
-                    },
-                    body: JSON.stringify({ for: forUsername, totpSeed: totpSeedEnc, public: myPublic }),
-                    signal: controller.signal
-                });
-                clearTimeout(timeout);
-                reload();
-            })();
-        } else if (event.data.type == "submission") {
-            (async () => {
-                const fromUsername = event.data.from;
-                const myPrivate = (await getJSON("/key_with_" + selectedUser)).key;
-                await myLog("myPrivate:", myPrivate);
-                const theirPublic = "";// event.data.public;
-                await myLog("theirPublic:", theirPublic);
-                const totpSeedEnc = event.data.totpSeed;
-                let ourShared = "aaaaaaaaaaaaaaaa";// pointToHex(multPoint(bytesToWords(base16ToBytes(myPrivate)), pointFromHex(theirPublic), a)).slice(2, 18);
-                await myLog("ourShared:", ourShared);
-                const totpSeed = AES.decrypt(base64ToBytes(totpSeedEnc), AES.expandKey(stringToBytes(ourShared)), { type: AES.Type.PCBC_CTS, IV: "bbbbbbbbbbbbbbbb" });
-                await myLog("seed:", totpSeed);
-                await postJSON("/set_seed_from_" + fromUsername + "?seed=" + encodeURIComponent(totpSeed), {});
-                reload();
-            })();
-        }
+        if (((typeof event.data) == "string") && (event.data == "reloadScreen"))
+            reloadScreen();
     });
 });

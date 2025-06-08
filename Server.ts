@@ -148,7 +148,9 @@ function pushUser(session: sessionType, data: any): Promise<boolean> {
     });
 }
 async function reloadUser(session: sessionType): Promise<boolean> {
-    return await pushUser(session, { type: "reload" });
+    // return await pushUser(session, { type: "reload" });
+    reloadStatuses[session.username] = true;
+    return true;
 }
 async function notifyUser(session: sessionType, header: string, body: string): Promise<boolean> {
     return await pushUser(session, { type: "notification", data: { header, body } });
@@ -398,7 +400,10 @@ app.post("/addFriend", async (req: Request, res: Response) => {
     reloadUser(session);
     res.json(true);
 });
-app.post("/req_seed_from", async (req: Request, res: Response) => {
+
+const messages: {[user: string]: { type: string, data: { [key: string]: any } }[] } = {};
+const reloadStatuses: {[user: string]: boolean} = {};
+app.post("/seed_transfer_one", async (req: Request, res: Response) => {
     if (!validateSession(req, res)) {
         res.status(401).send("");
         return;
@@ -421,16 +426,15 @@ app.post("/req_seed_from", async (req: Request, res: Response) => {
     }
     if (!friendedEachOther[0] || !friendedEachOther[1]) { res.json(false); return; }
     // public seed must exist and have correct length
-    // if ((typeof req.body.public) !== "string") { res.json(false); return; }
-    // if (req.body.public.length !== 194) { res.json(false); return; }
-    console.log("/req_seed_from,", seedForUsername, ":", req.body);
+    if ((typeof req.body.public) !== "string") { res.json(false); return; }
+    if (req.body.public.length !== 194) { res.json(false); return; }
+    // console.log("/seed_transfer_one,", seedForUsername, ":", req.body);
     // request seed
-    const seedFromSessionId: string = usernameToSessionId[seedFromUsername];
-    pushUser(sessions[seedFromSessionId], { type: "request", data: { for: seedForUsername, public: req.body.public } });
-    // notifyUser(seedForUsername, "requested", "BODY");
+    messages[seedFromUsername] ??= [];
+    messages[seedFromUsername].push({ type: "seed_one", data: { for: seedForUsername, public: req.body.public } });
     res.json(true);
 });
-app.post("/give_seed_for", async (req: Request, res: Response) => {
+app.post("/seed_transfer_two", async (req: Request, res: Response) => {
     if (!validateSession(req, res)) {
         res.status(401).send("");
         return;
@@ -439,7 +443,6 @@ app.post("/give_seed_for", async (req: Request, res: Response) => {
     const cookies: {[seed: string]: string} = getCookies(req);
     const seedFromUsername: string = sessions[cookies[sessionIdCookieName]].username;
     const seedFromUserIndex: number = userIndexByName[seedFromUsername];
-    // const seedFromUser: userType = users[seedFromUserIndex];
     // requested for user
     if ((typeof req.body.for) !== "string") { res.json(false); return; }
     const seedForUsername: string = req.body.for;
@@ -457,14 +460,58 @@ app.post("/give_seed_for", async (req: Request, res: Response) => {
     // totp seed must exist
     if ((typeof req.body.totpSeed) !== "string") { res.json(false); return; }
     // public seed must exist and have correct length
-    // if ((typeof req.body.public) !== "string") { res.json(false); return; }
-    // if (req.body.public.length !== 194) { res.json(false); return; }
-    console.log("/give_seed_for,", seedFromUsername, ":", req.body);
-    // send seed over
-    const seedForSessionId: string = usernameToSessionId[seedForUsername];
-    pushUser(sessions[seedForSessionId], { type: "submission", data: { from: seedFromUsername, totpSeed: req.body.totpSeed, public: req.body.public } });
-    // notifyUser(seedForUsername, "received", "BODY");
+    if ((typeof req.body.public) !== "string") { res.json(false); return; }
+    if (req.body.public.length !== 194) { res.json(false); return; }
+    // console.log("/seed_transfer_two,", seedFromUsername, ":", req.body);
+    // send seed 
+    messages[seedForUsername] ??= [];
+    messages[seedForUsername].push({ type: "seed_two", data: { from: seedFromUsername, totpSeed: req.body.totpSeed, public: req.body.public } });
     res.json(true);
+});
+app.post("/seed_transfer_three", async (req: Request, res: Response) => {
+    if (!validateSession(req, res)) {
+        res.status(401).send("");
+        return;
+    }
+    // requested from user
+    const cookies: {[seed: string]: string} = getCookies(req);
+    const seedFromUsername: string = sessions[cookies[sessionIdCookieName]].username;
+    const seedFromUserIndex: number = userIndexByName[seedFromUsername];
+    // requested for user
+    if ((typeof req.body.for) !== "string") { res.json(false); return; }
+    const seedForUsername: string = req.body.for;
+    const seedForUserIndex: number = userIndexByName[seedForUsername];
+    if (seedForUserIndex == undefined) { res.json(false); return; }
+    // they must have both added each other
+    let friendedEachOther: [boolean, boolean] = [ false, false ];
+    for (let i = 0; i < userLink.length; i++) {
+        const link = userLink[i];
+        if ((link[0] == seedFromUserIndex) && (link[1] == seedForUserIndex)) friendedEachOther[0] = true;
+        if ((link[1] == seedFromUserIndex) && (link[0] == seedForUserIndex)) friendedEachOther[1] = true;
+    }
+    if (!friendedEachOther[0] || !friendedEachOther[1]) { res.json(false); return; }
+    // totp seed must exist
+    if ((typeof req.body.totpSeed) !== "string") { res.json(false); return; }
+    // public seed must exist and have correct length
+    if ((typeof req.body.public) !== "string") { res.json(false); return; }
+    if (req.body.public.length !== 194) { res.json(false); return; }
+    // console.log("/seed_transfer_three,", seedForUsername, ":", req.body);
+    // send seed again
+    messages[seedFromUsername] ??= [];
+    messages[seedForUsername].push({ type: "seed_three", data: { from: seedFromUsername, totpSeed: req.body.totpSeed, public: req.body.public } });
+    res.json(true);
+});
+app.get("/getMessages", async (req: Request, res: Response) => {
+    if (!validateSession(req, res)) {
+        res.status(401).send("");
+        return;
+    }
+    // requested from user
+    const cookies: {[seed: string]: string} = getCookies(req);
+    const username: string = sessions[cookies[sessionIdCookieName]].username;
+    res.json({ reload: (reloadStatuses[username] ?? true), messages: (messages[username] ?? []) });
+    messages[username] = [];
+    reloadStatuses[username] = false;
 });
 
 app.post("/get_seeds_state", async (req: Request, res: Response) => {
