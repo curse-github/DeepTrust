@@ -3,9 +3,9 @@
 	<head>
         <meta charset="utf-8" name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=0">
         <meta name="apple-mobile-web-app-status-bar-style" content="default">
-        <title>Create Account</title>
+        <title>Change Password</title>
         <script src="/ShaTotpAesEcc.js"></script>
-        <script src="/create.js"></script>
+        <script src="/change.js"></script>
         <link rel="icon" href="/favicon.ico">
         <link rel="manifest" href="/manifest.json">
         <link rel="stylesheet" href="main.css">
@@ -16,23 +16,26 @@
 			<div>
 				<div style="margin:0.333em"><a class="link" href="/login.html">Back</a></div>
 			</div>
-			<div class="my-3 h1">Create Account</div>
-			<label class="h4" for="username">Username</label>
-			<input class="w-50p" type="text" id="username">
+			<div class="my-3 h1">Change Password</div>
 			<label class="h4" for="email">Email</label>
 			<input class="w-50p" type="text" id="email">
+			<label class="h4" for="o_password">Old Password</label>
+			<div class="w-50p">
+				<input style="width: calc(100% - 4rem); display: inline-block;" type="password" id="o_password">
+				<input style="width: 2rem; height: 2rem; display: inline-block; vertical-align: middle; margin:0" type="checkbox" id="toggle1">
+			</div>
 			<label class="h4" for="password">Password</label>
 			<div class="w-50p">
 				<input style="width: calc(100% - 4rem); display: inline-block;" type="password" id="password">
-				<input style="width: 2rem; height: 2rem; display: inline-block; vertical-align: middle; margin:0" type="checkbox" id="toggle1">
+				<input style="width: 2rem; height: 2rem; display: inline-block; vertical-align: middle; margin:0" type="checkbox" id="toggle2">
 			</div>
 			<label class="h4" for="c_password">Confirm Password</label>
 			<div class="w-50p">
 				<input style="width: calc(100% - 4rem); display: inline-block;" type="password" id="c_password">
-				<input style="width: 2rem; height: 2rem; display: inline-block; vertical-align: middle; margin:0" type="checkbox" id="toggle2">
+				<input style="width: 2rem; height: 2rem; display: inline-block; vertical-align: middle; margin:0" type="checkbox" id="toggle3">
 			</div>
 			<div class="flex flex-column flex-center my-2 w-100p">
-				<input class="btn btn-primary w-50p" type="button" value="Create" id="enter" onclick="create()">
+				<input class="btn btn-primary w-50p" type="button" value="Change" id="enter" onclick="change()">
 			</div>
 		</main>
 	</body>

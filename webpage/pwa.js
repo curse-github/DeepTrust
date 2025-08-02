@@ -126,6 +126,10 @@ async function attemptAddFriend() {
     if (output) el.value = "";
     else el.style.color = "red";
 }
+async function removeFriend() {
+    const output = await postJSON("/removeFriend", { username: selectedUser });
+    if (output) reloadScreen();
+}
 async function requestSeedFrom(fromUsername) {
     // await myLog("start");
     const privateKey = (await getJSON("/key_with_" + fromUsername)).key;
@@ -146,9 +150,6 @@ async function authFromUser() {
 async function authToUser() {
     await postJSON("/auth_to_user", { to: selectedUser });
 }
-/* async function authEnd() {
-    await postJSON("/auth_end", { with: selectedUser });
-}*/
 // #endregion authentication functions
 
 async function checkMessages() {
@@ -157,41 +158,16 @@ async function checkMessages() {
         const message = messages[i];
         const IV = "cccccccccccccccc";
         if (message.type == "seed_one") {
-            /*
-                old old way: userA requesting seed from userB
-                    userA: post(/req_seed_from, { from: "userB" })
-
-                    server: notif("userB", { type: "request", data: { for: "userA" }})
-                    userB: ciphertext = AES.encrypt("seed", "aaaaaaaaaaaaaaaa")
-                    userB: post(/give_seed_for, { for: "userA", totpSeed: ciphertext })
-
-                    server: notif("userA", { type: "submission", data: { from: "userB", totpSeed: ciphertext }})
-                    userA: plaintext = AES.decrypt(ciphertext, "aaaaaaaaaaaaaaaa") = "seed"
-                old way: userA requesting seed from userB
-                    userA: a = genkey(); A = a * G
-                    userA: post(/req_seed_from, { from: "userB", public: A })
-
-                    server: notif("userB", { type: "request", data: { for: "userA", public: A }})
-                    userB: b = genkey(); B = b * G
-                    userB: S = b * A; ciphertext = AES.encrypt("seed", S)
-                    userA: post(/give_seed_for, { for: "userA", public: B, totpSeed: ciphertext })
-
-                    server: notif("userA", { type: "submission", data: { from: "userB", public: B, totpSeed: ciphertext }})
-                    userA: S = a * B
-                    userA: plaintext = AES.decrypt(ciphertext, S) = "seed"
-                new way: userA requesting seed from userB
-                    placeholder
-            */
             // parse data and calculate keys
             const forUsername = message.data.for;
             const myPrivate = (await getJSON("/key_with_" + forUsername)).key;
             const myPublic = getPublic(myPrivate);
             const theirPublic = message.data.public;
-            let ourShared = pointToHex(multPoint(bytesToWords(base16ToBytes(myPrivate)), pointFromHex(theirPublic), a)).slice(2, 18);
+            let ourShared = AES.expandKey(base16ToBytes(pointToHex(multPoint(bytesToWords(base16ToBytes(myPrivate)), pointFromHex(theirPublic), a)).slice(2, 66)));
             // create, encode, and send seed
             await getJSON("/create_seed_for_" + forUsername);
             const totpSeedFor = (await getJSON("/seed_for_" + forUsername)).seed;
-            const totpSeedForEnc = bytesToBase64(AES.encrypt(totpSeedFor, AES.expandKey(stringToBytes(ourShared)), { type: AES.Type.PCBC_CTS, IV }));
+            const totpSeedForEnc = bytesToBase64(AES.encryptBytes(base32ToBytes(totpSeedFor), ourShared, { type: AES.Type.PCBC_CTS, IV }));
             await postJSON("/seed_transfer_two", { for: forUsername, totpSeed: totpSeedForEnc, public: myPublic });
             reloadScreen();
             reload = false;
@@ -202,14 +178,14 @@ async function checkMessages() {
             const myPublic = getPublic(myPrivate);
             const theirPublic = message.data.public;
             const totpSeedFromEnc = message.data.totpSeed;
-            let ourShared = pointToHex(multPoint(bytesToWords(base16ToBytes(myPrivate)), pointFromHex(theirPublic), a)).slice(2, 18);
+            let ourShared = AES.expandKey(base16ToBytes(pointToHex(multPoint(bytesToWords(base16ToBytes(myPrivate)), pointFromHex(theirPublic), a)).slice(2, 66)));
             // decode seed
-            const totpSeedFrom = AES.decrypt(base64ToBytes(totpSeedFromEnc), AES.expandKey(stringToBytes(ourShared)), { type: AES.Type.PCBC_CTS, IV });
+            const totpSeedFrom = bytesToBase32(AES.decryptBytes(base64ToBytes(totpSeedFromEnc), ourShared, { type: AES.Type.PCBC_CTS, IV }));
             await postJSON("/set_seed_from_" + fromUsername + "?seed=" + encodeURIComponent(totpSeedFrom), {});
             // create and encode seed
             await getJSON("/create_seed_for_" + fromUsername);
             const totpSeedFor = (await getJSON("/seed_for_" + fromUsername)).seed;
-            const totpSeedForEnc = bytesToBase64(AES.encrypt(totpSeedFor, AES.expandKey(stringToBytes(ourShared)), { type: AES.Type.PCBC_CTS, IV }));
+            const totpSeedForEnc = bytesToBase64(AES.encryptBytes(base32ToBytes(totpSeedFor), ourShared, { type: AES.Type.PCBC_CTS, IV }));
             await postJSON("/seed_transfer_three", { for: fromUsername, totpSeed: totpSeedForEnc, public: myPublic });
             reloadScreen();
             reload = false;
@@ -219,9 +195,9 @@ async function checkMessages() {
             const myPrivate = (await getJSON("/key_with_" + fromUsername)).key;
             const theirPublic = message.data.public;
             const totpSeedEnc = message.data.totpSeed;
-            let ourShared = pointToHex(multPoint(bytesToWords(base16ToBytes(myPrivate)), pointFromHex(theirPublic), a)).slice(2, 18);
+            let ourShared = AES.expandKey(base16ToBytes(pointToHex(multPoint(bytesToWords(base16ToBytes(myPrivate)), pointFromHex(theirPublic), a)).slice(2, 66)));
             // decode seed
-            const totpSeed = AES.decrypt(base64ToBytes(totpSeedEnc), AES.expandKey(stringToBytes(ourShared)), { type: AES.Type.PCBC_CTS, IV });
+            const totpSeed = bytesToBase32(AES.decryptBytes(base64ToBytes(totpSeedEnc), ourShared, { type: AES.Type.PCBC_CTS, IV }));
             await postJSON("/set_seed_from_" + fromUsername + "?seed=" + encodeURIComponent(totpSeed), {});
 
             reloadScreen();
@@ -252,23 +228,23 @@ async function reloadScreen() {
         const date = new Date(log.time);
         const hours = date.getHours();
         let logStr = "";
-        if (log.state == 2)
+        if (log.data.state == 2)
             logStr = date.getMonth().toString().padStart(2, "0") + "/" + date.getDate().toString().padStart(2, "0") + "/" + date.getFullYear() + " " + (hours % 13).toString().padStart(2, "0") + ":" + date.getMinutes().toString().padStart(2, "0") + ":" + date.getSeconds().toString().padStart(2, "0") + ((hours < 12) ? " AM" : " PM") + " : ";// "<br>&nbsp;&nbsp;&nbsp;&nbsp;";
         let logWith = "";
         if (log.from == myUsername) {
-            if (log.expiration > time)
-                stateMap[log.to] = [ 0, log.state ];
+            if (log.data.expiration > time)
+                stateMap[log.to] = [ 0, log.data.state ];
             logWith = log.to;
-            if (log.state == 2)
+            if (log.data.state == 2)
                 logStr += myUsername + " -> " + log.to;
         } else {
-            if (log.expiration > time)
-                stateMap[log.from] = [ 1, log.state ];
+            if (log.data.expiration > time)
+                stateMap[log.from] = [ 1, log.data.state ];
             logWith = log.from;
-            if (log.state == 2)
+            if (log.data.state == 2)
                 logStr += log.from + " -> " + myUsername;
         }
-        if (log.state == 2) {
+        if (log.data.state == 2) {
             logsMap[logWith] ||= [];
             logsMap[logWith].push(logStr);
         }
@@ -284,9 +260,12 @@ async function reloadScreen() {
         friend.style["border-width"] = "2px";
         if (username == selectedUser) friend.className += " glow";
         // if (stateMap[username] && (stateMap[username][1] == 2)) friend.style["border-color"] = "green";
-        friend.innerHTML = "<div class=\"dot mr-1 " + (online_list[i] ? "green" : "red") + "\"></div>";
+        friend.innerHTML = "<div class=\"dot mr-1 " + ((online_list[i] === true) ? "green" : ((online_list[i] === false) ? "red" : "yellow")) + "\"></div>";
         friend.innerHTML += "<div" + ((username == selectedUser) ? " class='bold h3'" : "") + " style='text-align: left; flex-grow: 5'>" + username + "<div>";
-        friend.innerHTML += "<div><div class=\"dot mx-0_5 " + ((seedsState[username][0] === 0) ? "red" : ((seedsState[username][0] === 2) ? "green" : "yellow")) + "\"></div>-><div class=\"dot mx-0_5 " + ((seedsState[username][1] === 0) ? "red" : ((seedsState[username][1] === 2) ? "green" : "yellow")) + "\"></div></div>";
+        if ((seedsState[username][0] === -1) || (seedsState[username][1] === -1))
+            friend.innerHTML += "<div></div>";
+        else
+            friend.innerHTML += "<div><div class=\"dot mx-0_5 " + ((seedsState[username][0] === 0) ? "red" : ((seedsState[username][0] === 2) ? "green" : "yellow")) + "\"></div>-><div class=\"dot mx-0_5 " + ((seedsState[username][1] === 0) ? "red" : ((seedsState[username][1] === 2) ? "green" : "yellow")) + "\"></div></div>";
         friend.addEventListener("click", () => {
             if (username != selectedUser) {
                 selectedUser = username;
@@ -298,10 +277,13 @@ async function reloadScreen() {
     // set buttons for authentication based on state
     const authInputs = document.getElementById("auth_inputs");
     authInputs.innerHTML = "";
-    if ((seedsState[selectedUser][0] != 0) || (seedsState[selectedUser][1] != 0)) {
-        authInputs.innerHTML += "<input class=\"w-75p mb-1\" type=\"button\" value=\"Clear\" onclick='clearSeedsWith()'>";
+    let tmp = "<div class=\"h-2 w-75p mb-1 h5 flex flex-row flex-space\">";
+    if ((seedsState[selectedUser][0] > 0) || (seedsState[selectedUser][1] > 0)) {
+        tmp += "<input class=\"h-100p w-100p mr-1\" type=\"button\" value=\"Clear\" onclick='clearSeedsWith()'>";
     }
-    if ((seedsState[selectedUser][0] == 2) && (seedsState[selectedUser][1] == 2)) {
+    authInputs.innerHTML += tmp + "<input class='h-100p w-100p' type=\"button\" " + " value=\"Un-Add\" onclick='removeFriend()'></div>";
+    if ((seedsState[selectedUser][0] == -1) || (seedsState[selectedUser][1] == -1)) {
+    } else if ((seedsState[selectedUser][0] == 2) && (seedsState[selectedUser][1] == 2)) {
         const test = stateMap[selectedUser];
         if ((test == undefined) || (test[1] == 2)) {
             authInputs.innerHTML += "<input class='w-75p' type=\"button\" " + " value=\"Start auth\" onclick='authStart()'>";
@@ -324,7 +306,7 @@ async function reloadScreen() {
         //     authInputs.innerHTML += "<input class='w-75p' type=\"button\" " + " value=\"End auth\" onclick='authEnd()'>";
         // }
     } else if (seedsState[selectedUser][1] == 0)
-        authInputs.innerHTML += "<input class=\"w-75p mb-1\" type=\"button\" value=\"Request Key\" onclick='requestSeedFrom(selectedUser)'>";
+        authInputs.innerHTML += "<input class=\"w-75p mb-1 h-2\" type=\"button\" value=\"Request Key\" onclick='requestSeedFrom(selectedUser)'>";
 
 
     // set logs

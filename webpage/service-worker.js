@@ -74,8 +74,8 @@ self.addEventListener("fetch", (event) => {
         url.startsWith("/ping") || url.startsWith("/notif/subscribe")
         || url.startsWith("/seed_transfer_one") || url.startsWith("/seed_transfer_two") || url.startsWith("/seed_transfer_three")
         || url.startsWith("/log") || url.startsWith("/getMessages")
-        || url.startsWith("/auth_start") || url.startsWith("/auth_from_user")
-        || url.startsWith("/auth_to_user") || url.startsWith("/auth_end")
+        || url.startsWith("/auth_start") || url.startsWith("/auth_from_user") || url.startsWith("/auth_to_user")
+        || url.startsWith("/addFriend") || url.startsWith("/removeFriend")
     ) return;
     if (url.startsWith("/get_seeds_state")) {
         event.respondWith(new Promise(async (resolve) => {
@@ -93,14 +93,15 @@ self.addEventListener("fetch", (event) => {
                 const seedForRes = await cache.match("/seed_for_" + friend);
                 if (!seedForRes)
                     map[friend].push("");
-                else
-                    map[friend].push(sha256(await seedForRes.text()));
+                else {
+                    map[friend].push(bytesToBase32(sha256Bytes(base32ToBytes((await seedForRes.json()).seed))));
+                }
                 // from
                 const seedFromRes = await cache.match("/seed_from_" + friend);
                 if (!seedFromRes)
                     map[friend].push("");
                 else
-                    map[friend].push(sha256(await seedFromRes.text()));
+                    map[friend].push(bytesToBase32(sha256Bytes(base32ToBytes((await seedFromRes.json()).seed))));
             }
             const controller = new AbortController();
             const timeoutId = setTimeout(() => { controller.abort("timeout"); }, 1000);

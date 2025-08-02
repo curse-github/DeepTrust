@@ -560,12 +560,15 @@ input[type="file"] {
 }
 .h4 {
     font-size: 1.25rem;
+    font-weight: normal;
 }
 .h5 {
     font-size: 1rem;
+    font-weight: normal;
 }
 .h6 {
     font-size: 0.83rem;
+    font-weight: normal;
 }
 
 .fw-normal {

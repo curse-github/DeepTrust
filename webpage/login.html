@@ -9,6 +9,7 @@
         <link rel="icon" href="/favicon.ico">
         <link rel="manifest" href="/manifest.json">
         <link rel="stylesheet" href="main.css">
+        <link rel="stylesheet" href="pwa.css">
 	</head>
 	<body>
 		<div class="flex flex-column flex-center border bw-15 br-10 size-mobile">
@@ -18,11 +19,12 @@
 			<label class="h4" for="password">Password</label>
 			<div class="w-50p">
 				<input style="width: calc(100% - 4rem); display: inline-block;" type="password" id="password">
-				<input style="width: 2rem; height: 2rem; display: inline-block; vertical-align: middle; margin:0" type="checkbox" id="toggle">
+				<input type="checkbox" id="toggle">
 			</div>
 			<div class="flex flex-column flex-center my-2">
 				<input class="btn btn-primary w-50p" type="button" value="Log in" id="enter" onclick="login()">
 				<div style="margin:0.333em"><a class="link" href="/create.html">Create an Account</a></div>
+				<div style="margin:0.333em"><a class="link" href="/change.html">Change Password</a></div>
 			</div>
 		</main>
 	</body>

@@ -1,4 +1,4 @@
-async function login() {
+async function create() {
     let str = location.origin + "/tryCreate";
     str += "?username=" + encodeURIComponent(document.getElementById("username").value);
     str += "&email=" + encodeURIComponent(document.getElementById("email").value);

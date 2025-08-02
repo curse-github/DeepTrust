@@ -12,6 +12,16 @@ input::placeholder {
     color: #1f2833;
     font-size: 1rem;
 }
+input[type="checkbox"] {
+    display: inline-block;
+    width: 2rem;
+    height: 2rem;
+    vertical-align: middle;
+    accent-color: #45a29e;
+}
+a, a:visited {
+    color: cornflowerblue
+}
 .dot {
     display: inline-block;
     min-width: 1rem;
@@ -30,6 +40,10 @@ input::placeholder {
 }
 .dot.yellow {
     background-color: orange;
+}
+.content input[type="checkbox"] {
+    width: 2em;
+    height: 2em;
 }
 
 .glow {

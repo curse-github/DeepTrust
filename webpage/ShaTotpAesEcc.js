@@ -2,6 +2,12 @@
 // #region ./numberHandling
 // general library for handling, converting, and generating numbers in other bases
 // by Curse
+function leftRotate(value, amount) {
+    return (value >>> (32 - amount)) | (value << amount);
+}
+function rightRotate(value, amount) {
+    return (value >>> amount) | (value << (32 - amount));
+}
 function padStartToMod(str, mod, char) {
     return char.repeat((mod - (str.length % mod)) % mod) + str;
 }
@@ -161,9 +167,6 @@ function sha0(str) {
     return bytesToBase16(sha0Bytes(stringToBytes(str)));
 }
 // actual hash algorithms
-function leftRotate(value, amount) {
-    return (value >>> (32 - amount)) | (value << amount);
-}
 function sha0Bytes(bytes) {
     var i, j;
     var bitLength = bytes.length * 8;
@@ -218,9 +221,6 @@ function sha1(str) {
     return bytesToBase16(sha1Bytes(stringToBytes(str)));
 }
 // actual hash algorithms
-function leftRotate(value, amount) {
-    return (value >>> (32 - amount)) | (value << amount);
-}
 function sha1Bytes(bytes) {
     var i, j;
     var bitLength = bytes.length * 8;
@@ -286,9 +286,6 @@ for (let candidate = 2; primeCounter < 64; candidate++) {
         h[primeCounter] = (Math.pow(candidate, 0.5) * maxWord) | 0;
         k[primeCounter++] = (Math.pow(candidate, 1 / 3) * maxWord) | 0;
     }
-}
-function rightRotate(value, amount) {
-    return (value >>> amount) | (value << (32 - amount));
 }
 function sha256Bytes(bytes) {
     let i, j; // Used as a counter across the whole file
@@ -419,7 +416,6 @@ function getHOTP(key, counter) {
 // also help from ChatGPT
 // function using Rijndaels Finite Field or GF(2^8) or GF(2)[x]/(x^8 + x^4 + x^3 + x + 1) where x^8 + x^4 + x^3 + x + 1 = 0b100011011 or 0x11b
 function RijndaelsDegree(poly) {
-    // console.log("degree(" + poly + ")");
     for (let i = 8; i >= 0; i--) {
         if ((poly & (1 << i)) !== 0) {
             return i;
@@ -428,7 +424,6 @@ function RijndaelsDegree(poly) {
     return -1;
 }
 function RijndaelsMultiplication(a, b) {
-    // console.log("mult(" + a + ", " + b + ")");
     let result = 0;
     for (let i = 0; (i < 8) && (b > 0); i++) {
         if ((b & 1) !== 0)
@@ -454,21 +449,11 @@ function RijndaelsDivision(dividend, divisor) {
     }
     return [quotient, remainder];
 }
-// for 0 < a < p : there exists s and t such that as + pt = 1
-// if equation is mod p then (as + pt) % p = as % p = 1 % p = 1 => there exists s such that as % p = 1
-// as + pt = 1
-// p   = q_1*a   + r_1 where q_1 and r_1 are integers and 0 <= r_1 < a
-// a   = q_2*r_1 + r_2 where q_2 and r_2 are integers and 0 <= r_2 < r_1
-// r_1 = q_3*r_2 + r_3 where q_3 and r_3 are integers and 0 <= r_3 < r_2
-// r_2 = q_4*r_3 + r_4 where q_4 and r_4 are integers and 0 <= r_4 < r_3
-// ...
-// r_(n-2) = q_n*r_(n-1) + 0 because r_x is strictly decreasing due to the condition of r(n) < r_(n-1)
 function RijndaelsExtendedEuclidean(a) {
-    // console.log("inv(" + a + ")");
     let x = a;
     let y = 0x11b;
-    let s2 = 1;
     let s1 = 0;
+    let s2 = 1;
     while (y !== 0) {
         let [q, r] = RijndaelsDivision(x, y);
         let s0 = s2 ^ RijndaelsMultiplication(q, s1);
@@ -482,15 +467,15 @@ function RijndaelsExtendedEuclidean(a) {
 }
 // #endregion ./RijndaelsFF
 
-function leftRotate(value, bitSize, amount) {
-    if (bitSize === 32)
-        return ((value >>> (bitSize - amount)) | (value << amount)) >>> 0;
-    else if (bitSize < 32)
-        return ((value >>> (bitSize - amount)) | (value << amount)) & ((1 << bitSize) - 1);
-    return 0;
-}
 var AES;
 (function (AES) {
+    function leftRotate(value, bitSize, amount) {
+        if (bitSize === 32)
+            return ((value >>> (bitSize - amount)) | (value << amount)) >>> 0;
+        else if (bitSize < 32)
+            return ((value >>> (bitSize - amount)) | (value << amount)) & ((1 << bitSize) - 1);
+        return 0;
+    }
     // #region S-Box
     function createS_Box() {
         // https://en.wikipedia.org/wiki/Rijndael_S-box
@@ -504,8 +489,6 @@ var AES;
             Sb[i] = b ^ leftRotate(b, 8, 1) ^ leftRotate(b, 8, 2) ^ leftRotate(b, 8, 3) ^ leftRotate(b, 8, 4) ^ 0x63;
             RSb[Sb[i]] = i;
         }
-        // console.log("S-Box:");
-        // for (let i = 0; i < 256;) console.log("    " + S.slice(i, i += 16).map((byte: number) => byte.toString(16).padStart(2, "0")).join(" "));
         return [Sb, RSb];
     }
     let [S, RS] = createS_Box();
@@ -532,14 +515,16 @@ var AES;
         // generate constants used in key schedule
         const rc = [1];
         const rcon = [1 << 24];
-        for (let i = 1; i < 10; i++) {
+        for (let i = 1; i < 14; i++) {
             if (rc[i - 1] < 0x80)
                 rc[i] = rc[i - 1] << 1;
             else
-                rc[i] = ((rc[i - 1] << 1) ^ 0x1B) % 0x100;
+                rc[i] = ((rc[i - 1] << 1) ^ 0x1B) & 0xFF;
             rcon[i] = (rc[i] << 24) >>> 0;
         }
         let Ww = bytesToWords(K); // 32 bit words of the "expanded key" length of 4R
+        // console.log("Wb = ", K);
+        // console.log("Ww = ", Ww);
         const N = Ww.length; // number of 32 bit words in key size, 4, 6, or 8 for AES128, 196, and 256 respectively
         for (let i = N; i < 60; i++) { // for (let i = 0; i < (4 * R); i++) {
             if ((i % N) === 0)
@@ -611,8 +596,7 @@ var AES;
         }
     }
     AES.PaddingToString = PaddingToString;
-    function encrypt(message, W, options) {
-        let messageBytes = stringToBytes(message);
+    function encryptBytes(messageBytes, W, options) {
         if (options.type == undefined)
             throw new Error("type option is missing.");
         if (options.type === Type.ECB) {
@@ -895,8 +879,12 @@ var AES;
         }
         return [];
     }
+    AES.encryptBytes = encryptBytes;
+    function encrypt(message, W, options) {
+        return encryptBytes(stringToBytes(message), W, options);
+    }
     AES.encrypt = encrypt;
-    function decrypt(encryptedBytes, W, options) {
+    function decryptBytes(encryptedBytes, W, options) {
         if (options.type == undefined)
             throw new Error("type option is missing.");
         if (options.type === Type.ECB) {
@@ -921,7 +909,7 @@ var AES;
                     output.pop();
                 output.pop();
             }
-            return bytesToString(output);
+            return output;
         }
         else if (options.type === Type.CTR) {
             if (options.IV == undefined)
@@ -938,10 +926,10 @@ var AES;
                 else
                     CTR[15]++; // I most definitely wont use more that 256*256*16 bytes
             }
-            return bytesToString(encryptedBytes.map((byte, j) => byte ^ CTRhash[j]));
+            return encryptedBytes.map((byte, j) => byte ^ CTRhash[j]);
         }
         else if (options.type === Type.GCM) {
-            return "";
+            return [];
         }
         else if (options.type === Type.CBC) {
             if (options.Padding == undefined)
@@ -971,7 +959,7 @@ var AES;
                     output.pop();
                 output.pop();
             }
-            return bytesToString(output);
+            return output;
         }
         else if (options.type === Type.PCBC) {
             if (options.Padding == undefined)
@@ -1002,7 +990,7 @@ var AES;
                     output.pop();
                 output.pop();
             }
-            return bytesToString(output);
+            return output;
         }
         else if (options.type === Type.CBC_CTS) {
             // https://en.wikipedia.org/wiki/Ciphertext_stealing#CBC_ciphertext_stealing_decryption_using_a_standard_CBC_interface
@@ -1029,7 +1017,7 @@ var AES;
             }
             while ((output.length > 0) && (output[output.length - 1] === 0))
                 output.pop();
-            return bytesToString(output);
+            return output;
         }
         else if (options.type === Type.PCBC_CTS) {
             // https://en.wikipedia.org/wiki/Ciphertext_stealing#CBC_ciphertext_stealing_decryption_using_a_standard_CBC_interface, this but for PCBC
@@ -1061,7 +1049,7 @@ var AES;
             }
             while ((output.length > 0) && (output[output.length - 1] === 0))
                 output.pop();
-            return bytesToString(output);
+            return output;
         }
         else if (options.type === Type.CBC_RBT) {
             if (options.IV == undefined)
@@ -1081,7 +1069,7 @@ var AES;
                     output.push(...cipherText.map((byte, j) => byte ^ Vector[j]));
                 }
             }
-            return bytesToString(output);
+            return output;
         }
         else if (options.type === Type.CFB) {
             if (options.Padding == undefined)
@@ -1111,7 +1099,7 @@ var AES;
                     output.pop();
                 output.pop();
             }
-            return bytesToString(output);
+            return output;
         }
         else if (options.type === Type.OFB) {
             if (options.Padding == undefined)
@@ -1140,9 +1128,13 @@ var AES;
                     output.pop();
                 output.pop();
             }
-            return bytesToString(output);
+            return output;
         }
-        return "";
+        return [];
+    }
+    AES.decryptBytes = decryptBytes;
+    function decrypt(encryptedBytes, W, options) {
+        return bytesToString(decryptBytes(encryptedBytes, W, options));
     }
     AES.decrypt = decrypt;
     function encryptBlock(message, W) {
@@ -1189,9 +1181,9 @@ var AES;
         ];
         // AddRoundKey step
         state = state.map((byte, i) => byte ^ W[224 + i]); // 224 = 14*16
-        // switch from column-major back to list
         return state;
     }
+    AES.encryptBlock = encryptBlock;
     function decryptBlock(encryptedState, W) {
         let state = [...encryptedState];
         // SubRoundKey step
@@ -1233,136 +1225,8 @@ var AES;
         state = state.map((byte, i) => byte ^ W[i]);
         return state;
     }
+    AES.decryptBlock = decryptBlock;
 })(AES || (AES = {}));
-/*
-// console.clear();
-// output
-let numTests16: number = 0;
-let succesfullTests16: number = 0;
-let numTests32: number = 0;
-let succesfullTests32: number = 0;
-let numTests64: number = 0;
-let succesfullTests64: number = 0;
-function encDecTest(msg: string, W: number[], options: { type: AES.Type, Padding?: AES.Padding, IV?: string }): void {
-    let header: string = "AES-" + AES.TypeToString(options.type);
-    if ((options.type !== AES.Type.CTR) && (options.type !== AES.Type.GCM) && (options.type !== AES.Type.CBC_CTS) && (options.type !== AES.Type.PCBC_CTS) && (options.type !== AES.Type.CBC_RBT)) header += ", Padding = " + AES.PaddingToString(options.Padding!);
-    if (options.type !== AES.Type.ECB) header += ", IV = \"" + options.IV! + "\"";
-    console.log(header);
-    const encrypted: number[] = AES.encrypt(msg, W, options);
-    const encrypted16: string = bytesToBase16(encrypted);
-    const encrypted32: string = bytesToBase32(encrypted);
-    const encrypted64: string = bytesToBase64(encrypted);
-    const decrypted16: string = AES.decrypt(base16ToBytes(encrypted16), W, options);
-    const decrypted32: string = AES.decrypt(base32ToBytes(encrypted32), W, options);
-    const decrypted64: string = AES.decrypt(base64ToBytes(encrypted64), W, options);
-    numTests16++;
-    numTests32++;
-    numTests64++;
-    console.log("    encrypted: \"" + encrypted16 + "\"");
-    console.log("    encrypted: \"" + encrypted32 + "\"");
-    console.log("    encrypted: \"" + encrypted64 + "\"");
-    if (msg === decrypted16) {
-        console.log("    Test succeeded, decrypted matched original string.");
-        succesfullTests16++;
-    } else
-        console.log("    Test failed.");
-    if (msg === decrypted32) {
-        console.log("    Test succeeded, decrypted matched original string.");
-        succesfullTests32++;
-    } else
-        console.log("    Test failed.");
-    if (msg === decrypted64) {
-        console.log("    Test succeeded, decrypted matched original string.");
-        succesfullTests64++;
-    } else
-        console.log("    Test failed.");
-}
-function fullTest(msg: string, randKey: string, IV: string): void {
-    console.log("\nmessage: \"" + msg + "\"");
-    console.log("key: \"" + randKey + "\"\n");
-    const K: number[] = stringToBytes(randKey);
-    const W: number[] = AES.expandKey(K);
-    encDecTest(msg, W, { type: AES.Type.ECB, Padding: AES.Padding.NoPadding });
-    encDecTest(msg, W, { type: AES.Type.ECB, Padding: AES.Padding.PKCS7 });
-    encDecTest(msg, W, { type: AES.Type.ECB, Padding: AES.Padding.DES });
-    encDecTest(msg, W, { type: AES.Type.CTR, IV });
-    // encDecTest(msg, W, { type: AES.Type.GCM, IV });
-    encDecTest(msg, W, { type: AES.Type.CBC, Padding: AES.Padding.NoPadding, IV });
-    encDecTest(msg, W, { type: AES.Type.CBC, Padding: AES.Padding.PKCS7, IV });
-    encDecTest(msg, W, { type: AES.Type.CBC, Padding: AES.Padding.DES, IV });
-    encDecTest(msg, W, { type: AES.Type.PCBC, Padding: AES.Padding.NoPadding, IV });
-    encDecTest(msg, W, { type: AES.Type.PCBC, Padding: AES.Padding.PKCS7, IV });
-    encDecTest(msg, W, { type: AES.Type.PCBC, Padding: AES.Padding.DES, IV });
-    encDecTest(msg, W, { type: AES.Type.CBC_CTS, IV });
-    encDecTest(msg, W, { type: AES.Type.PCBC_CTS, IV });
-    encDecTest(msg, W, { type: AES.Type.CBC_RBT, IV });
-    encDecTest(msg, W, { type: AES.Type.CFB, Padding: AES.Padding.NoPadding, IV });
-    encDecTest(msg, W, { type: AES.Type.CFB, Padding: AES.Padding.PKCS7, IV });
-    encDecTest(msg, W, { type: AES.Type.CFB, Padding: AES.Padding.DES, IV });
-    encDecTest(msg, W, { type: AES.Type.OFB, Padding: AES.Padding.NoPadding, IV });
-    encDecTest(msg, W, { type: AES.Type.OFB, Padding: AES.Padding.PKCS7, IV });
-    encDecTest(msg, W, { type: AES.Type.OFB, Padding: AES.Padding.DES, IV });
-}
-const strs: string[] = [
-    "aaaaaaaaaaaaaaa", // less than a full block
-    "bbbbbbbbbbbbbbbb", // exactly one block
-    "ccccccccccccccccc", // just more than one block
-    "test message, this is a much longer message which also does not align with the 128 bit boundary"
-];
-for (let i = 0; i < strs.length; i++) {
-    fullTest(strs[i]!, generateBase64Num(32), generateBase64Num(16));
-}
-
-console.log();
-console.log((succesfullTests16 + succesfullTests32 + succesfullTests64) + "/" + (numTests16 + numTests32 + numTests64) + " or " + (Math.round((succesfullTests16 + succesfullTests32 + succesfullTests64) / (numTests16 + numTests32 + numTests64) * 10000) / 100) + "% of tests succeeded.");
-console.log(succesfullTests16 + "/" + numTests16 + " or " + (Math.round(succesfullTests16 / numTests16 * 10000) / 100) + "% of base-16 tests succeeded.");
-console.log(succesfullTests32 + "/" + numTests32 + " or " + (Math.round(succesfullTests32 / numTests32 * 10000) / 100) + "% of base-32 tests succeeded.");
-console.log(succesfullTests64 + "/" + numTests64 + " or " + (Math.round(succesfullTests64 / numTests64 * 10000) / 100) + "% of base-64 tests succeeded.");
-// */ 
-// #endregion ./AES
-
-// #region ./ECC
-// https://www.youtube.com/watch?v=dCvB-mhkT0w
-// ECC key of 384 bits is equivilant to the security of a 7680 bit RSA key
-// a 384 bit ECC key is considered top secret level security by the us government
-// A dot A -> B
-// A dot B -> C
-// D = -C
-// A dot E -> D
-// F = -E
-// A dot G -> F
-// ...
-// iterate this process N times
-// maximum value is the size of the key
-// https://www.youtube.com/watch?v=F3zzNa42-tQ
-// Calculating
-//     y^2=x^3+ax+b
-//     
-//     A dot A -> B:
-//         S = (3(A.x)^2+a)/(2A.y)
-//         B.x = S^2-2A.x
-//         B.y = 3SA.x-S^3-A.y
-//     A dot B -> C:
-//         S = (B.y-A.y)/(B.x-A.x)
-//         C.x = S^2-A.x-B.x
-//         C.y = SA.x-SC.x-A.y
-// public values:
-//     p: modulus value, or the domain of the curve
-//     a,b: the curve parameters such that y^2 = x^3 + ax + b
-//     G: the generator point such that nG = P
-//     n: ord(G)
-//     h: cofactor
-// method:
-//     alice creates private key a such that 1 <= a <= n-1
-//     alice compute public key A such that A = aG
-//     bob creates private key b such that 1 <= b <= n-1
-//     bob compute public key B such that B = bG
-//     alice sends bob her public key A
-//     bob sends alice his public key B
-//     alice and bob compute P = aB or bA
-//     this results in alice and bob having the same point because abG = baG
-// #region ./384FF
-
 var FF;
 (function (FF) {
     // constants
@@ -1670,108 +1534,6 @@ var FF;
     }
     FF.toBase16 = toBase16;
 })(FF || (FF = {}));
-/*
-console.log("0:");
-FF.prnt(FF.zero);
-console.log("1:");
-FF.prnt(FF.one);
-console.log("inf:");
-FF.prnt(FF.inf);
-console.log("  -------------------------------- -------------------------------- -------------------------------- -------------------------------- -------------------------------- --------------------------------");
-console.log("0 + 0:");
-FF.prnt(FF.add(FF.zero, FF.zero));
-console.log("0 + 1:");
-FF.prnt(FF.add(FF.zero, FF.one));
-console.log("1 + 1:");
-FF.prnt(FF.add(FF.one, FF.one));
-console.log("inf + 1:");
-FF.prnt(FF.add(FF.inf, FF.one));
-console.log("MAX32 + 1:");
-FF.prnt(FF.add([ 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, FF.MAX32 ], FF.one));
-console.log("MAX32 + MAX32:");
-FF.prnt(FF.add([ 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, FF.MAX32 ], [ 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, FF.MAX32 ]));
-console.log("  -------------------------------- -------------------------------- -------------------------------- -------------------------------- -------------------------------- --------------------------------");
-console.log("0 - 0:");
-FF.prnt(FF.sub(FF.zero, FF.zero));
-console.log("0 - 1:");
-FF.prnt(FF.sub(FF.zero, FF.one));
-console.log("1 - 1:");
-FF.prnt(FF.sub(FF.one, FF.one));
-console.log("1<<32 - 1:");
-FF.prnt(FF.sub([ 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0 ], FF.one));
-console.log("MAX32 - MAX32:");
-FF.prnt(FF.sub([ 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, FF.MAX32 ], [ 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, FF.MAX32 ]));
-console.log("  -------------------------------- -------------------------------- -------------------------------- -------------------------------- -------------------------------- --------------------------------");
-const neg3_1: FF.number384 = FF.sub(FF.zero, FF.three);
-const neg3_2: FF.number384 = FF.sub(FF.p, FF.three);
-const neg3_3: FF.number384 = FF.neg(FF.three);
-console.log("0 - 3:");
-FF.prnt(neg3_1);
-console.log("p - 3:");
-FF.prnt(neg3_2);
-console.log("neg(3):");
-FF.prnt(neg3_3);
-console.log("  -------------------------------- -------------------------------- -------------------------------- -------------------------------- -------------------------------- --------------------------------");
-console.log("(0 - 3) + 3:");
-FF.prnt(FF.add(neg3_1, FF.three));
-console.log("(p - 3) + 3:");
-FF.prnt(FF.add(neg3_2, FF.three));
-console.log("neg(3) + 3:");
-FF.prnt(FF.add(neg3_3, FF.three));
-console.log("  -------------------------------- -------------------------------- -------------------------------- -------------------------------- -------------------------------- --------------------------------");
-FF.prnt([ 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1 ]);
-FF.prnt(FF.leftShift([ 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0b00000000000000000000000000000001 ], 1));
-FF.prnt(FF.leftShift([ 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0b00000000000000000000000000000010 ], 1));
-FF.prnt(FF.leftShift([ 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0b00000000000000000000000000000100 ], 1));
-FF.prnt(FF.leftShift([ 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0b00000000000000000000000000001000 ], 1));
-FF.prnt(FF.leftShift([ 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0b00000000000000000000000000010000 ], 1));
-FF.prnt(FF.leftShift([ 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0b00000000000000000000000000100000 ], 1));
-FF.prnt(FF.leftShift([ 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0b00000000000000000000000001000000 ], 1));
-FF.prnt(FF.leftShift([ 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0b00000000000000000000000010000000 ], 1));
-FF.prnt(FF.leftShift([ 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0b00000000000000000000000100000000 ], 1));
-FF.prnt(FF.leftShift([ 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0b00000000000000000000001000000000 ], 1));
-FF.prnt(FF.leftShift([ 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0b00000000000000000000010000000000 ], 1));
-FF.prnt(FF.leftShift([ 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0b00000000000000000000100000000000 ], 1));
-FF.prnt(FF.leftShift([ 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0b00000000000000000001000000000000 ], 1));
-FF.prnt(FF.leftShift([ 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0b00000000000000000010000000000000 ], 1));
-FF.prnt(FF.leftShift([ 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0b00000000000000000100000000000000 ], 1));
-FF.prnt(FF.leftShift([ 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0b00000000000000001000000000000000 ], 1));
-FF.prnt(FF.leftShift([ 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0b00000000000000010000000000000000 ], 1));
-FF.prnt(FF.leftShift([ 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0b00000000000000100000000000000000 ], 1));
-FF.prnt(FF.leftShift([ 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0b00000000000001000000000000000000 ], 1));
-FF.prnt(FF.leftShift([ 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0b00000000000010000000000000000000 ], 1));
-FF.prnt(FF.leftShift([ 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0b00000000000100000000000000000000 ], 1));
-FF.prnt(FF.leftShift([ 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0b00000000001000000000000000000000 ], 1));
-FF.prnt(FF.leftShift([ 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0b00000000010000000000000000000000 ], 1));
-FF.prnt(FF.leftShift([ 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0b00000000100000000000000000000000 ], 1));
-FF.prnt(FF.leftShift([ 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0b00000001000000000000000000000000 ], 1));
-FF.prnt(FF.leftShift([ 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0b00000010000000000000000000000000 ], 1));
-FF.prnt(FF.leftShift([ 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0b00000100000000000000000000000000 ], 1));
-FF.prnt(FF.leftShift([ 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0b00001000000000000000000000000000 ], 1));
-FF.prnt(FF.leftShift([ 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0b00010000000000000000000000000000 ], 1));
-FF.prnt(FF.leftShift([ 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0b00100000000000000000000000000000 ], 1));
-FF.prnt(FF.leftShift([ 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0b01000000000000000000000000000000 ], 1));
-console.log();
-console.log("transition");
-console.log();
-FF.prnt(FF.leftShift([ 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0b10000000000000000000000000000000 ], 1));
-FF.prnt(FF.leftShift([ 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0b000001, 0b00000000000000000000000000000000 ], 1));
-FF.prnt(FF.leftShift([ 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0b000010, 0b00000000000000000000000000000000 ], 1));
-FF.prnt(FF.leftShift([ 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0b000100, 0b00000000000000000000000000000000 ], 1));
-FF.prnt(FF.leftShift([ 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0b001000, 0b00000000000000000000000000000000 ], 1));
-FF.prnt(FF.leftShift([ 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0b010000, 0b00000000000000000000000000000000 ], 1));
-FF.prnt(FF.leftShift([ 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0b100000, 0b00000000000000000000000000000000 ], 1));
-console.log("  -------------------------------- -------------------------------- -------------------------------- -------------------------------- -------------------------------- --------------------------------");
-console.log(FF.degree([ 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0 ]));
-console.log(FF.degree([ 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1 ]));
-console.log(FF.degree([ 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 2 ]));
-console.log(FF.degree([ 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 4 ]));
-console.log(FF.degree([ 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 8 ]));
-console.log(FF.degree([ 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 16 ]));
-for (let i = 1; i < 201; i++) {
-    console.log(i, FF.toBase16(FF.modularDiv([ 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, i ], [ 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, i ])));
-}
-// */ 
 // #endregion ./384FF
 
 function pointDouble(A, a) {
@@ -1794,17 +1556,19 @@ function pointAdd(A, B) {
     FF.subEqual(y, A[1]);
     return [FF.truncate384(x), FF.truncate384(y)]; // y = s(a.x - x) - a.y
 }
-function multPoint(s, P, a) {
+function multPoint(s, P, a, debug) {
     // https://en.wikipedia.org/wiki/Elliptic_curve_point_multiplication#Double-and-add
     if (FF.isZero(s))
         throw new Error("multiply by 0");
     s = [...s];
     let res = undefined;
     let temp = P;
+    let i = 0;
     while (!FF.isZero(s)) {
-        if ((s[11] & 1) === 1) {
+        if (debug)
+            console.log((i++).toString().padStart(3, " "), pointToHex(temp));
+        if ((s[11] & 1) === 1)
             res = ((res == undefined) ? [[...temp[0]], [...temp[1]]] : pointAdd(res, temp));
-        }
         FF.rightShiftEqual(s, 1);
         temp = pointDouble(temp, a);
     }
@@ -1824,12 +1588,24 @@ const a = bytesToWords(base16ToBytes("FFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF
 // const b: number384 = bytesToWords(base16ToBytes("B3312FA7E23EE7E4988E056BE3F82D19181D9C6EFE8141120314088F5013875AC656398D8A2ED19D2A85C8EDD3EC2AEF")) as number384;
 // G = (0xaa87ca22be8b05378eb1c71ef320ad746e1d3b628ba79b9859f741e082542a385502f25dbf55296c3a545e3872760ab7, 0x3617de4a96262c6f5d9e98bf9292dc29f8f41dbd289a147ce9da3113b5f0b8c00a60b1ce1d7e819d7a431d7c90ea0e5f)
 const G = pointFromHex("04AA87CA22BE8B05378EB1C71EF320AD746E1D3B628BA79B9859F741E082542A385502F25DBF55296C3A545E3872760AB73617DE4A96262C6F5D9E98BF9292DC29F8F41DBD289A147CE9DA3113B5F0B8C00A60B1CE1D7E819D7A431D7C90EA0E5F");
-function getPublic(privateStr) {
+// const keyPairs: [ number384, point ][] = [];
+function getPublic(privateStr, knownValue, debug) {
     const privateKey = bytesToWords(base16ToBytes(privateStr));
     for (let i = privateKey.length; i < 12; i++)
         privateKey.unshift(0);
-    const publicKey = multPoint(privateKey, G, a);
+    const startTime = (new Date()).getTime();
+    const publicKey = multPoint(privateKey, G, a, debug);
+    const endTime = ((new Date()).getTime() - startTime) / 1000;
     const publicStr = pointToHex(publicKey);
+    /* console.log("private:", privateStr);
+    console.log(" public:", publicStr);
+    console.log("took " + endTime + "s");
+    if (knownValue) {
+        const matches: boolean = (publicStr === knownValue);
+        console.log("correct?:", matches);
+    }
+    console.log();
+    keyPairs.push([ privateKey, publicKey ]);*/
     return publicStr;
 }
 // #region ./Random
@@ -1841,7 +1617,10 @@ function xor(A, B) {
 function time() {
     return (new Date()).getTime();
 }
+// use this for browser code
 let seed = Array.from(self.crypto.getRandomValues(new Uint8Array(127))); // sha25 of current time
+// import crypto from "crypto";
+// let seed = sha256Bytes(crypto.randomBytes(127).toJSON().data); // sha25 of some random bytes
 // https://en.wikipedia.org/wiki/Cryptographically_secure_pseudorandom_number_generator#Practical_schemes
 function generateNum(bytes) {
     const num = [];
@@ -1871,43 +1650,4 @@ function getKeyPair() {
     const publicStr = getPublic(privateStr);
     return [privateStr, publicStr];
 }
-/*
-getPublic("0000000000000000000000000000000051897B64E85C3F714BBA707E867914295A1377A7463A9DAE8EA6A8B914246319", "04687767250027023EA16A100A5013B11204D23C297FA7CA3089178B1F135C3044BFF9D12DD1DEF8AFBC8107B41B3B246F837B9FA9E3235E5284BC537A536E82226676F81D2E4C8C5159E643914802B00DB33C3DF15FD7E4E514295A1DF1088451");
-getPublic("EEBB53AA624A244B5C845547C4320F121FF3AF21C26899E62F2E5D76A454816153EC66FC2A2C2BBDF37A020D545F8CF0", "04D9836A82760F45D06A9FDA48BB12E1D9A48122DCA082E43769009041B709CA8E381E8FFDDAB2CBE690E6012E702AA1D470F85DEF97AD3CCFA1F24BE8E39A4E9F7A842D49EEAD042BEBBAD2DB418D84D6DE475CB05FCA91209F20F665837FE46D");
-getPublic("18E72E1FEC79E4FA8DFDB6AB71DF62F53CBF89719731049E711C1F44E89D0215069E520B150EAD804D9067799050DCB4", "0457E5C9DBC63879C995142FDA853C5BC28EF63C65CC0A721A1EF33A9A5E94B3E183000BC1BA5459DB4F76A42863836A9881CE3C06804736DDD47F15D62F9BE301C9097597957B7DB75A83E89F319CC5C20501F8A49B440A398434CF7EC582709D");
-getPublic("2DE5DFEC9B51E4F7E1FFD5D7F311C0A0FCFE2C81E811A47A4B349618C8F2F1B0F59FA17BFA1ED6A34AF3760B4D42EF61", "0424A34BD70A56F5065D18DC28FC93B0CFD80B746C4EA6F66AEFD1CE71BD850885420D0420EE2504A3DB1A04D659504A1D4615D647395578D5081AED9DD4588D9DE2494123A4E91DFD891A41995FC7D1538825197E06D072B0EC810F43384F316A");
-getPublic("6F2D24918E5701476FCF829D408B8FAF49FD9053125CFF01F8332C1C7659B34210763C64678516AB6CD38ADF7F31FE26", "048F9DDA54813ADEF962CFEAA8383D46F762E69D5A3AAACC5B2B8B25E6AEE3A2AC7C786908CF72C8A3E4BC280B5561D225C87C1D3BF4B4B24B724D1D21A22EB5E9D2F73297EB1F4C57553E51D1C7C6B5B64694AF78AEBE9635E2F0498B40F1DA91");
-getPublic("1B19C2BAC56F31419F9E8A9CD964780F9DC33DD937D235937418EF505015D127B8CB20C27E9AD3A4FC823063E3D1DD88", "04609AC5B5CE2E994E64DF6FD1B32C0F6D73EE9D66BAA5A2C36CAF65E61255986C01AF71F315FECE284B28760583EAF40CBCE7A3D799240F296C0F734EF1566BD3EBFE93E1FA3E81E175E224D6272934FFA7FD0C5CA82B411D3E42235D309C5B45");
-getPublic("B89619D9AFA5CA9F029B9085B90D07B01A95F0E2D7038C1E920AA9E8275B543F32364D33CEAC58D2A5241AC1E9F88EC8", "044BEE33CE2C9C00DE059E00D1E84FAF6CA38455891C83C23A2C2508CCC18AF586B48B4DFEEC5E81BDA514D67EC338CC6580E7C4CB51F4C08F415B3DEC02F5E5CB03C34A57E5636072BF7BD4B389124FB3BA1CF98A9CB9612640580B04EF8E4713");
-getPublic("AF7717738E02958B14160CA44277E0147F7512FB3B6FA467B89C1CAAC745C638F7E5655F6BBA228643D3A4F583BC91A2", "0434DCF910DD69D5FCB1801C13FCF8586A97F87D5D3F72C90125107B634A5070EB3C4EEF6486238AEDE4B31F8952C6C2A8B0BDF018053D47BF0F4F1CCE0B71920D3F4FA0A6F8CFA5888650B512C75AD822B9188FE0CA5076167BC35DD89AD6ECAD");
-getPublic("820288643FF080E65461050F5233F9B41BF12925451EE10D82F6525969EDA13FA45A93CDD99CCE81CE17E5DA42FDB956", "0449933D3A1A6E4E0B0C6DBE2D96D444C81EF1AEDE308B63E008A756D73FE22C3DB5C6795BC14E8D3A08BEF2CA3F622842B466D92A7804605E094D682CE26A00821E125F4193B4368877D2A6217F5A256CCD80E5699BE229769781E451E9C62EEC");
-getKeyPair();
-getKeyPair();
-getKeyPair();
-getKeyPair();
-for (let i = 0; i < keyPairs.length; i++) {
-    for (let j = i; j < keyPairs.length; j++) {
-        const iJ: point = multPoint(keyPairs[i]![0], keyPairs[j]![1], a);
-        const jI: point = multPoint(keyPairs[j]![0], keyPairs[i]![1], a);
-        for (let k = 0; k < 2; k++)
-            for (let l = 0; l < 12; l++)
-                if (iJ[k]![l]! != jI[k]![l]!)
-                    console.log("\nERROR\n");
-        console.log("shared key " + i + "-" + j + ":", pointToHex(iJ));
-    }
-}
-for (let i = 0; i < keyPairs.length; i++) {
-    for (let j = i; j < keyPairs.length; j++) {
-        for (let k = j; k < keyPairs.length; k++) {
-            const ijK: point = multPoint(keyPairs[i]![0], multPoint(keyPairs[j]![0], keyPairs[k]![1], a), a);
-            const jkI: point = multPoint(keyPairs[j]![0], multPoint(keyPairs[k]![0], keyPairs[i]![1], a), a);
-            const kiJ: point = multPoint(keyPairs[k]![0], multPoint(keyPairs[i]![0], keyPairs[j]![1], a), a);
-            for (let k = 0; k < 2; k++)
-                for (let l = 0; l < 12; l++)
-                    if ((ijK[k]![l]! != jkI[k]![l]!) || (jkI[k]![l]! != kiJ[k]![l]!) || (kiJ[k]![l]! != ijK[k]![l]!))
-                        console.log("\nERROR\n");
-            console.log("shared key " + i + "-" + j + "-" + k + ":", pointToHex(ijK));
-        }
-    }
-} // */ 
 // #endregion ./ECC
