@@ -152,7 +152,7 @@ async function sendMessage() {
     const P = hmac256(key, stringToBytes(M).concat(key));
     const HP = sha256Bytes(P);
     const EM = AES.encrypt(M, expandedKey, { type: AES.Type.PCBC_CTS, IV: bytesToBase32(HP).substring(0, 16) });
-    const personalKey = stringToBytes("cccccccccccccccccccccccccccccccc");
+    const personalKey = stringToBytes((await getJSON("/personal_key_with" + update.data.from)).key);
     const expandedPersonalKey = AES.expandKey(personalKey);
     const EHP = AES.encryptBytes(HP, expandedPersonalKey, { type: AES.Type.PCBC_CTS, IV: bytesToBase32(sha256Bytes(EM)).substring(0, 16) });
     const E_EMnEHP = bytesToBase32(AES.encrypt(bytesToString(EM.concat(EHP)), expandedKey, { type: AES.Type.PCBC_CTS, IV: bytesToString(key).substring(0, 16) }));
@@ -227,7 +227,7 @@ async function checkUpdates() {
             await postJSON("/send_message_two", { from: update.data.from, msgId: update.data.msgId, HEM: bytesToBase32(sha256Bytes(EM)), EHP: bytesToBase32(EHP) });
             reload = false;
         } else if (update.type == "message_two") {
-            const personalKey = stringToBytes("cccccccccccccccccccccccccccccccc");
+            const personalKey = stringToBytes((await getJSON("/personal_key_with" + update.data.from)).key);
             const expandedPersonalKey = AES.expandKey(personalKey);
             let HP = bytesToBase32(AES.decryptBytes(base32ToBytes(update.data.EHP), expandedPersonalKey, { type: AES.Type.PCBC_CTS, IV: update.data.HEM.substring(0, 16) }));
             await postJSON("/send_message_three", { to: update.data.to, msgId: update.data.msgId, HP });
