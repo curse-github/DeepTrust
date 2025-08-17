@@ -14,11 +14,11 @@ let swReady = false;
 let swReadyCallbacks = [];
 navigator.serviceWorker.ready.then((registration) => {
     swReg = registration;
-    if (swReg.active.state === "activated")
+    if (swReg.active.state == "activated")
         processSwReadyCallbacks();
     else
         swReg.active.addEventListener("statechange", (event) => {
-            if (event.target.state === "activated")
+            if (event.target.state == "activated")
                 processSwReadyCallbacks();
         });
 });
@@ -29,7 +29,7 @@ function processSwReadyCallbacks() {
             swReadyCallbacks[i]();
 }
 function onSwReady(func) {
-    if ((swReg != undefined) && (swReg.active.state === "activated")) func();
+    if ((swReg != undefined) && (swReg.active.state == "activated")) func();
     else swReadyCallbacks.push(func);
 }
 // #endregion sw stuff
@@ -139,21 +139,36 @@ async function requestSeedFrom(fromUsername) {
     await postJSON("/seed_transfer_one", { from: fromUsername, public: publicKey });
     // await myLog("end");
 }
-
-// #region authentication functions
-async function authStart() {
-    await postJSON("/auth_start", { to: selectedUser });
+function back() {
+    window.location.href = window.location.origin + "/pwa.html?selectedUser=" + selectedUser;
 }
-async function authFromUser() {
-    await postJSON("/auth_from_user", { from: selectedUser });
+// #region message functions
+async function sendMessage() {
+    const messageDataEl = document.getElementById("messageData");
+    const M = messageDataEl.value;
+    messageDataEl.value = "";
+    const key = base32ToBytes((await getJSON("/seed_for_" + selectedUser)).seed);
+    const expandedKey = AES.expandKey(key.slice(0, 32));
+    const P = hmac256(key, stringToBytes(M).concat(key));
+    const HP = sha256Bytes(P);
+    const EM = AES.encrypt(M, expandedKey, { type: AES.Type.PCBC_CTS, IV: bytesToBase32(HP).substring(0, 16) });
+    const personalKey = stringToBytes("cccccccccccccccccccccccccccccccc");
+    const expandedPersonalKey = AES.expandKey(personalKey);
+    const EHP = AES.encryptBytes(HP, expandedPersonalKey, { type: AES.Type.PCBC_CTS, IV: bytesToBase32(sha256Bytes(EM)).substring(0, 16) });
+    const E_EMnEHP = bytesToBase32(AES.encrypt(bytesToString(EM.concat(EHP)), expandedKey, { type: AES.Type.PCBC_CTS, IV: bytesToString(key).substring(0, 16) }));
+    await postJSON("/send_message_one", { to: selectedUser, EM: E_EMnEHP });
 }
-async function authToUser() {
-    await postJSON("/auth_to_user", { to: selectedUser });
+async function decodeMessage(log) {
+    let key = [];
+    if (log.from == selectedUser) key = base32ToBytes((await getJSON("/seed_from_" + selectedUser)).seed);
+    else key = base32ToBytes((await getJSON("/seed_for_" + selectedUser)).seed);
+    const expandedKey = AES.expandKey(key.slice(0, 32));
+    let EMnEHP = stringToBytes(AES.decrypt(base32ToBytes(log.data.EM), expandedKey, { type: AES.Type.PCBC_CTS, IV: bytesToString(key).substring(0, 16) }));
+    let EM = EMnEHP.splice(0, EMnEHP.length - 32);
+    let M = AES.decrypt(EM, expandedKey, { type: AES.Type.PCBC_CTS, IV: log.data.HP.substring(0, 16) });
+    return M;
 }
-async function gotoMessages() {
-    window.location.pathname = "/messages/" + selectedUser;
-}
-// #endregion authentication functions
+// #endregion message functions
 
 async function checkUpdates() {
     let { reload, updates } = await getJSON("/get_updates");
@@ -212,7 +227,7 @@ async function checkUpdates() {
             await postJSON("/send_message_two", { from: update.data.from, msgId: update.data.msgId, HEM: bytesToBase32(sha256Bytes(EM)), EHP: bytesToBase32(EHP) });
             reload = false;
         } else if (update.type == "message_two") {
-            const personalKey = stringToBytes((await getJSON("/personal_key_with" + update.data.from)).key);
+            const personalKey = stringToBytes("cccccccccccccccccccccccccccccccc");
             const expandedPersonalKey = AES.expandKey(personalKey);
             let HP = bytesToBase32(AES.decryptBytes(base32ToBytes(update.data.EHP), expandedPersonalKey, { type: AES.Type.PCBC_CTS, IV: update.data.HEM.substring(0, 16) }));
             await postJSON("/send_message_three", { to: update.data.to, msgId: update.data.msgId, HP });
@@ -234,114 +249,34 @@ let userIndex = "";
 let selectedUser = "";
 async function reloadScreen() {
     const data = await getJSON("/getUserData");
-    if (data === undefined) throw new Error("");
+    if (data == undefined) throw new Error("");
     const { friends_list, online_list, logs, online } = data;
     myUsername = data.name;
     userIndex = data.index;
-    const time = (new Date()).getTime();
     // make the subscribe button go away or come back
     const cookies = Object.fromEntries(document.cookie.split("; ").map((str) => str.split("=")));
     if (cookies.isSubbed !== "false") document.getElementById("Subscribe").className = "hidden";
     else document.getElementById("Subscribe").className = "mr-1";
     // get make from user to active logs and states
-    let stateMap = {};
-    let logsMap = {};
+    const seedsState = await getSeedsState();// seedsState["friend"][ "seed1", "seed2"] -> seed for friend is "seed1", seed from friend is "seed2"
+    if ((seedsState[selectedUser][0] !== 2) || (seedsState[selectedUser][1] !== 2)) return;// dont display anything if you dont have keys
+    const messagesDiv = document.getElementById("messages");
+    messagesDiv.innerHTML = "";
     const logsSorted = logs.sort((a, b) => b.time - a.time);// reverse order
     for (let i = 0; i < logsSorted.length; i++) {
         const log = logsSorted[i];
-        if (log.type != "AUTH") continue;
-        const date = new Date(log.time);
-        const hours = date.getHours();
-        let logStr = "";
-        if (log.data.state === 2)
-            logStr = date.getMonth().toString().padStart(2, "0") + "/" + date.getDate().toString().padStart(2, "0") + "/" + date.getFullYear() + " " + (hours % 13).toString().padStart(2, "0") + ":" + date.getMinutes().toString().padStart(2, "0") + ":" + date.getSeconds().toString().padStart(2, "0") + ((hours < 12) ? " AM" : " PM") + " : ";// "<br>&nbsp;&nbsp;&nbsp;&nbsp;";
-        let logWith = "";
-        if (log.from === myUsername) {
-            if (log.data.expiration > time)
-                stateMap[log.to] = [ 0, log.data.state ];
-            logWith = log.to;
-            if (log.data.state === 2)
-                logStr += myUsername + " -> " + log.to;
-        } else {
-            if (log.data.expiration > time)
-                stateMap[log.from] = [ 1, log.data.state ];
-            logWith = log.from;
-            if (log.data.state === 2)
-                logStr += log.from + " -> " + myUsername;
-        }
-        if (log.data.state === 2) {
-            logsMap[logWith] ||= [];
-            logsMap[logWith].push(logStr);
+        if (log.type != "MSG") continue;
+        if (log.data.state !== 3) continue;
+        if (log.to == selectedUser) {
+            messagesDiv.innerHTML = myUsername + ": " + await decodeMessage(log) + "<br>" + messagesDiv.innerHTML;
+        } else if (log.from == selectedUser) {
+            messagesDiv.innerHTML = selectedUser + ": " + await decodeMessage(log) + "<br>" + messagesDiv.innerHTML;
         }
     }
-    const seedsState = await getSeedsState();// seedsState["friend"][ "seed1", "seed2"] -> seed for friend is "seed1", seed from friend is "seed2"
-    if (seedsState == undefined) return;
-    // create friends list
-    const friends_list_element = document.getElementById("friends_list");
-    friends_list_element.innerHTML = "";
-    if ((selectedUser.length === 0) && (friends_list.length > 0)) selectedUser = friends_list[0];
-    friends_list.forEach(async (username, i) => {
-        const friend = document.createElement("div");
-        friend.className = "flex flex-row flex-centery flex-space pl-1 pr-1 border br-5 my-0_5 mx-0_5 fw-normal h4";
-        friend.style["border-width"] = "2px";
-        if (username === selectedUser) friend.className += " glow";
-        // if (stateMap[username] && (stateMap[username][1] === 2)) friend.style["border-color"] = "green";
-        friend.innerHTML = "<div class=\"dot mr-1 " + ((online_list[i] === true) ? "green" : ((online_list[i] === false) ? "red" : "yellow")) + "\"></div>";
-        friend.innerHTML += "<div" + ((username === selectedUser) ? " class='bold h3'" : "") + " style='text-align: left; flex-grow: 5'>" + username + "<div>";
-        if ((seedsState[username][0] === -1) || (seedsState[username][1] === -1))
-            friend.innerHTML += "<div></div>";
-        else
-            friend.innerHTML += "<div><div class=\"dot mx-0_5 " + ((seedsState[username][0] === 0) ? "red" : ((seedsState[username][0] === 2) ? "green" : "yellow")) + "\"></div>-><div class=\"dot mx-0_5 " + ((seedsState[username][1] === 0) ? "red" : ((seedsState[username][1] === 2) ? "green" : "yellow")) + "\"></div></div>";
-        friend.addEventListener("click", () => {
-            if (username != selectedUser) {
-                selectedUser = username;
-                reloadScreen();
-            }
-        });
-        friends_list_element.appendChild(friend);
-    });
-    // set buttons for authentication based on state
-    const inputs = document.getElementById("inputs");
-    inputs.innerHTML = "";
-    let tmp = "<div class=\"h-2 w-75p mb-1 h5 flex flex-row flex-space\">";
-    if ((seedsState[selectedUser][0] > 0) || (seedsState[selectedUser][1] > 0)) {
-        tmp += "<input class=\"h-100p w-100p mr-1\" type=\"button\" value=\"Refresh keys\" onclick='requestSeedFrom(selectedUser);'>";
-    }
-    if (seedsState[selectedUser][0] != -1)
-        inputs.innerHTML += tmp + "<input class='h-100p w-100p' type=\"button\" " + " value=\"Un-add\" onclick='remove_friend();'></div>";
-    else inputs.innerHTML += "</div>";
-    if ((seedsState[selectedUser][0] === -1) || (seedsState[selectedUser][1] === -1)) {
-    } else if ((seedsState[selectedUser][0] === 2) && (seedsState[selectedUser][1] === 2)) {
-        const test = stateMap[selectedUser];
-        if ((test == undefined) || (test[1] === 2)) {
-            inputs.innerHTML += "<div class=\"h-2 w-75p h5 flex flex-row flex-space\"><input class='h-100p w-100p mr-1' type=\"button\" " + " value=\"Auth\" onclick='authStart();'><input class='h-100p w-100p' type=\"button\" " + " value=\"Message\" onclick='gotoMessages();'></div>";
-        } else if (((test[0] === 0) && (test[1] === 0)) || ((test[0] === 1) && (test[1] === 1))) {
-            // text showing code for other user
-            inputs.innerHTML += "<div class='w-75p' id='code_for' class='flex flex-center'></div>";
-            getCodeFor(selectedUser).then((code) => {
-                const el = document.getElementById("code_for");
-                el.innerText = code;
-                const time_left = Math.round((oneTimeDuration - ((new Date()).getTime() % oneTimeDuration)) / 1000);
-                el.style.color = (time_left <= 5) ? "red" : "white";
-            });
-        } else if ((test[0] === 1) && (test[1] === 0)) { // auth_from_user
-            // input for other users code
-            inputs.innerHTML += "<input class='w-75p' type=\"text\" " + " id='code_from' placeholder=\"Code from " + selectedUser + "\" oninput='validateCodeFrom().then((valid) => { if (valid) authFromUser(); });'>";
-        } else if ((test[0] === 0) && (test[1] === 1)) { // auth_to_user
-            // input for other users code
-            inputs.innerHTML += "<input class='w-75p' type=\"text\" " + " id='code_from' placeholder=\"Code from " + selectedUser + "\" oninput='validateCodeFrom().then((valid) => { if (valid) authToUser(); });'>";
-        }//  else if (test[1] === 2) {
-        //     authInputs.innerHTML += "<input class='w-75p' type=\"button\" " + " value=\"End auth\" onclick='authEnd();'>";
-        // }
-    } else if (seedsState[selectedUser][1] === 0)
-        inputs.innerHTML += "<input class=\"w-75p mb-1 h-2\" type=\"button\" value=\"Request keys\" onclick='requestSeedFrom(selectedUser);'>";
-    // set logs
-    const logDiv = document.getElementById("logs");
-    logDiv.innerHTML = (logsMap[selectedUser] || []).join("<br>") || "No logs found.";
+    
 }
 onSwReady(async () => {
-    let query = Object.fromEntries(window.location.search.substring(1).split("&").map((el1) => el1.split("=").map((el2) => decodeURIComponent(el2))));
-    if (query.selectedUser != undefined) selectedUser = query.selectedUser;
+    selectedUser = window.location.pathname.replace("/messages/", "");
     reloadScreen();
     setTimeout(() => {
         setInterval(async () => {
@@ -361,7 +296,7 @@ onSwReady(async () => {
         checkUpdates();
     }, 1450);
     navigator.serviceWorker.addEventListener("message", (event) => {
-        if (((typeof event.data) === "string") && (event.data === "reloadScreen"))
+        if (((typeof event.data) == "string") && (event.data == "reloadScreen"))
             reloadScreen();
     });
 });

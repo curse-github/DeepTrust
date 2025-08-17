@@ -31,9 +31,9 @@ type userType = {
 };
 type logType = {
     id: string,
-    type: string,
-    from: userType["username"],
-    to: userType["username"],
+    type: "AUTH",
+    from: number,
+    to: number,
     time: number,
     data: {
         reason: string,
@@ -41,6 +41,28 @@ type logType = {
         expiration: number,
         fromIp: sessionType["ip"],
         toIp: sessionType["ip"]
+    }
+}|{
+    id: string,
+    type: "SC",
+    from: number,
+    to: number,
+    time: number,
+    data: {
+        ES: string,
+        seed_hash: string
+    }
+}|{
+    id: string,
+    type: "MSG",
+    from: number,
+    to: number,
+    time: number,
+    data: {
+        state: number,
+        EM: string,
+        HP: string,
+        P: string
     }
 };
 // #endregion types
@@ -201,6 +223,7 @@ serverStaticSimple("investorBrief.pdf");
 serveStaticAuthedSimple("pwa.html", true);
 serverStaticSimple("pwa.css");
 serveStaticAuthedSimple("pwa.js", false);
+serveStaticAuthedSimple("messages.js", false);
 serveStaticAuthedSimple("notifications.js", false);
 serveStaticAuthedSimple("service-worker.js", false);
 // #endregion express setup
@@ -403,42 +426,6 @@ app.get("/tryChange", async (req: Request, res: Response) => {
 });
 // #endregion login, create, and change
 
-app.get("/getUserData", async (req: Request, res: Response) => {
-    if (!validateSession(req, res)) {
-        res.status(401).send("");
-        return;
-    }
-    const cookies: {[key: string]: string} = getCookies(req);
-    const username: string = sessions[cookies[sessionIdCookieName]].username;
-    const userIndex: number = userIndexByName[username];
-    // const user: userType = users[userIndex];
-    let relevantLogs: logType[] = [];
-    for (let i = 0; i < logs.length; i++) {
-        const log = logs[i];
-        if (log.type !== "AUTH") continue;
-        if ((log.from === username) || (log.to === username))
-            relevantLogs.push(log);
-    }
-    let friends_list_ids: number[] = [];
-    userLink.forEach((link: [number, number]) => {
-        if (link[0] === userIndex)
-            friends_list_ids[link[1]] = 1;
-        if ((link[1] === userIndex) && (friends_list_ids[link[0]] === 1))
-            friends_list_ids[link[0]] = 2;
-    });
-    let friends_list: string[] = [];
-    let online_list: (boolean|undefined)[] = [];
-    friends_list_ids.forEach((state: number, friendId: number) => {
-        if (state === undefined) return;
-        friends_list.push(users[friendId].username);
-        if (state == 2) {
-            const id = usernameToSessionId[users[friendId].username];
-            if (id == undefined) online_list.push(false);
-            else online_list.push(sessions[id].active);
-        } else online_list.push(undefined);
-    });
-    res.json({ name: username, friends_list, online_list, logs: relevantLogs, online: true });
-});
 app.post("/addFriend", async (req: Request, res: Response) => {
     if (!validateSession(req, res)) {
         res.status(401).send("");
@@ -468,7 +455,7 @@ app.post("/addFriend", async (req: Request, res: Response) => {
     else reloadUser(sessions[usernameToSessionId[addedUser.username]]);
     res.json(true);
 });
-app.post("/removeFriend", async (req: Request, res: Response) => {
+app.post("/remove_friend", async (req: Request, res: Response) => {
     if (!validateSession(req, res)) {
         res.status(401).send("");
         return;
@@ -500,7 +487,8 @@ app.post("/removeFriend", async (req: Request, res: Response) => {
     res.json(true);
 });
 
-const messages: {[user: string]: { type: string, data: { [key: string]: any } }[] } = {};
+// #region seed transfer
+const updates: {[user: string]: { type: string, data: { [key: string]: any } }[] } = {};
 const reloadStatuses: {[user: string]: boolean} = {};
 app.post("/seed_transfer_one", async (req: Request, res: Response) => {
     if (!validateSession(req, res)) {
@@ -528,8 +516,8 @@ app.post("/seed_transfer_one", async (req: Request, res: Response) => {
     if ((typeof req.body.public) !== "string") { res.json(false); return; }
     if (req.body.public.length !== 194) { res.json(false); return; }
     // request seed
-    messages[seedFromUsername] ??= [];
-    messages[seedFromUsername].push({ type: "seed_one", data: { for: seedForUsername, public: req.body.public } });
+    updates[seedFromUsername] ??= [];
+    updates[seedFromUsername].push({ type: "seed_one", data: { for: seedForUsername, public: req.body.public } });
     res.json(true);
 });
 app.post("/seed_transfer_two", async (req: Request, res: Response) => {
@@ -560,8 +548,8 @@ app.post("/seed_transfer_two", async (req: Request, res: Response) => {
     if ((typeof req.body.public) !== "string") { res.json(false); return; }
     if (req.body.public.length !== 194) { res.json(false); return; }
     // send seed
-    messages[seedForUsername] ??= [];
-    messages[seedForUsername].push({ type: "seed_two", data: { from: seedFromUsername, totpSeed: req.body.totpSeed, public: req.body.public } });
+    updates[seedForUsername] ??= [];
+    updates[seedForUsername].push({ type: "seed_two", data: { from: seedFromUsername, totpSeed: req.body.totpSeed, public: req.body.public } });
     res.json(true);
 });
 app.post("/seed_transfer_three", async (req: Request, res: Response) => {
@@ -592,11 +580,11 @@ app.post("/seed_transfer_three", async (req: Request, res: Response) => {
     if ((typeof req.body.public) !== "string") { res.json(false); return; }
     if (req.body.public.length !== 194) { res.json(false); return; }
     // send seed again
-    messages[seedFromUsername] ??= [];
-    messages[seedForUsername].push({ type: "seed_three", data: { from: seedFromUsername, totpSeed: req.body.totpSeed, public: req.body.public } });
+    updates[seedForUsername] ??= [];
+    updates[seedForUsername].push({ type: "seed_three", data: { from: seedFromUsername, totpSeed: req.body.totpSeed, public: req.body.public } });
     res.json(true);
 });
-app.get("/getMessages", async (req: Request, res: Response) => {
+app.get("/get_updates", async (req: Request, res: Response) => {
     if (!validateSession(req, res)) {
         res.status(401).send("");
         return;
@@ -604,11 +592,240 @@ app.get("/getMessages", async (req: Request, res: Response) => {
     // requested from user
     const cookies: {[seed: string]: string} = getCookies(req);
     const username: string = sessions[cookies[sessionIdCookieName]].username;
-    res.json({ reload: (reloadStatuses[username] ?? true), messages: (messages[username] ?? []) });
-    messages[username] = [];
+    res.json({ reload: (reloadStatuses[username] ?? true), updates: (updates[username] ?? []) });
+    updates[username] = [];
     reloadStatuses[username] = false;
 });
+// #endregion seed transfer
 
+// #region messages
+app.get("/messages/*", async (req: Request, res: Response) => {
+    if (!validateSession(req, res)) {
+        res.status(401).send("");
+        return;
+    }
+    const cookies: {[key: string]: string} = getCookies(req);
+    const username: string = sessions[cookies[sessionIdCookieName]].username;
+    const userIndex: number = userIndexByName[username];
+    const otherUsername: string = req.params[0];
+    const otherUserIndex: number = userIndexByName[otherUsername];
+    // const user: userType = users[userIndex];
+    let areFriends: number = 0;
+    userLink.forEach((link: [number, number]) => {
+        if ((link[0] === userIndex) && (link[1] === otherUserIndex))
+            areFriends |= 1;
+        if ((link[1] === userIndex) && (link[0] === otherUserIndex))
+            areFriends |= 2;
+    });
+    if (areFriends !== 3) {
+        res.status(401).send("");
+        return;
+    }
+    res.sendFile(__dirname + "\\webpage\\messages.html", (err: Error) => {
+        if (err == undefined) return;
+        console.log("Couldnt find /messages.html file.", "\"" + err.name + "\": " + err.message);
+        res.status(500).type("text").send("error 500, internal error");
+    });
+});
+app.post("/send_message_one", async (req: Request, res: Response) => {
+    if (!validateSession(req, res)) {
+        res.status(401).json(false);
+        return;
+    }
+    const cookies: {[key: string]: string} = getCookies(req);
+    const username: string = sessions[cookies[sessionIdCookieName]].username;
+    const userIndex: number = userIndexByName[username];
+    // validate data
+    if (typeof req.body.to !== "string") { res.status(401).json(false); return; }
+    const otherUsername: string = req.body.to;
+    const otherUserIndex: number = userIndexByName[otherUsername];
+    let areFriends: number = 0;
+    userLink.forEach((link: [number, number]) => {
+        if ((link[0] === userIndex) && (link[1] === otherUserIndex))
+            areFriends |= 1;
+        if ((link[1] === userIndex) && (link[0] === otherUserIndex))
+            areFriends |= 2;
+    });
+    if (areFriends !== 3) { res.status(401).json(false); return; }
+    if (typeof req.body.EM !== "string") { res.status(401).json(false); return; }
+    const time: number = (new Date()).getTime();
+    const msgId: string = generateUUID();
+    // create log
+    logs.push({
+        id: msgId,
+        type: "MSG",
+        from: userIndex,
+        to: otherUserIndex,
+        time,
+        data: {
+            state: 0,
+            EM: req.body.EM,
+            HP: "",
+            P: ""
+        }
+    });
+    saveDb();
+    updates[otherUsername] ??= [];
+    updates[otherUsername].push({ type: "message_one", data: { msgId, from: username, EM: req.body.EM } });
+    res.json(true);
+});
+app.post("/send_message_two", async (req: Request, res: Response) => {
+    if (!validateSession(req, res)) {
+        res.status(401).json(false);
+        return;
+    }
+    const cookies: {[key: string]: string} = getCookies(req);
+    const username: string = sessions[cookies[sessionIdCookieName]].username;
+    const userIndex: number = userIndexByName[username];
+    // validate data
+    if (typeof req.body.from !== "string") { res.status(401).json(false); return; }
+    const otherUsername: string = req.body.from;
+    const otherUserIndex: number = userIndexByName[otherUsername];
+    let areFriends: number = 0;
+    userLink.forEach((link: [number, number]) => {
+        if ((link[0] === userIndex) && (link[1] === otherUserIndex))
+            areFriends |= 1;
+        if ((link[1] === userIndex) && (link[0] === otherUserIndex))
+            areFriends |= 2;
+    });
+    if (areFriends !== 3) { res.status(401).json(false); return; }
+    if (typeof req.body.HEM !== "string") { res.status(401).json(false); return; }
+    if (typeof req.body.EHP !== "string") { res.status(401).json(false); return; }
+    if (typeof req.body.msgId !== "string") { res.status(401).json(false); return; }
+    // update log
+    for (let i = 0; i < logs.length; i++) {
+        const log = logs[i];
+        if (log.type !== "MSG") continue;
+        if (log.id !== req.body.msgId) continue;
+        if (log.data.state !== 0) break;// log is in the wrong state
+        // update log
+        (logs[i].data as { state: number, EM: string, HP: string, P: string }).state = 1;
+        saveDb();
+        updates[otherUsername] ??= [];
+        updates[otherUsername].push({ type: "message_two", data: { msgId: req.body.msgId, to: username, HEM: req.body.HEM, EHP: req.body.EHP } });
+        res.json(true);
+        return;
+    }
+    // finding log failed
+    res.status(401).json(false);
+});
+app.post("/send_message_three", async (req: Request, res: Response) => {
+    if (!validateSession(req, res)) {
+        res.status(401).json(false);
+        return;
+    }
+    const cookies: {[key: string]: string} = getCookies(req);
+    const username: string = sessions[cookies[sessionIdCookieName]].username;
+    const userIndex: number = userIndexByName[username];
+    // validate data
+    if (typeof req.body.to !== "string") { res.status(401).json(false); return; }
+    const otherUsername: string = req.body.to;
+    const otherUserIndex: number = userIndexByName[otherUsername];
+    let areFriends: number = 0;
+    userLink.forEach((link: [number, number]) => {
+        if ((link[0] === userIndex) && (link[1] === otherUserIndex))
+            areFriends |= 1;
+        if ((link[1] === userIndex) && (link[0] === otherUserIndex))
+            areFriends |= 2;
+    });
+    if (areFriends !== 3) { res.status(401).json(false); return; }
+    if (typeof req.body.HP !== "string") { res.status(401).json(false); return; }
+    if (typeof req.body.msgId !== "string") { res.status(401).json(false); return; }
+    // update log
+    for (let i = 0; i < logs.length; i++) {
+        const log = logs[i];
+        if (log.type !== "MSG") continue;
+        if (log.id !== req.body.msgId) continue;
+        if (log.data.state !== 1) break;// log is in the wrong state
+        (logs[i].data as { state: number, EM: string, HP: string, P: string }).state = 2;
+        (logs[i].data as { state: number, EM: string, HP: string, P: string }).HP = req.body.HP;
+        saveDb();
+        updates[otherUsername] ??= [];
+        updates[otherUsername].push({ type: "message_three", data: { msgId: req.body.msgId, from: username, EM: (logs[i].data as { state: number, EM: string, HP: string, P: string }).EM, HP: req.body.HP } });
+        res.json(true);
+        return;
+    }
+    // finding log failed
+    res.status(401).json(false);
+});
+app.post("/send_message_four", async (req: Request, res: Response) => {
+    if (!validateSession(req, res)) {
+        res.status(401).json(false);
+        return;
+    }
+    const cookies: {[key: string]: string} = getCookies(req);
+    const session: sessionType = sessions[cookies[sessionIdCookieName]];
+    const username: string = session.username;
+    const userIndex: number = userIndexByName[username];
+    // validate data
+    if (typeof req.body.from !== "string") { res.status(401).json(false); return; }
+    const otherUsername: string = req.body.from;
+    const otherUserIndex: number = userIndexByName[otherUsername];
+    // const user: userType = users[userIndex];
+    let areFriends: number = 0;
+    userLink.forEach((link: [number, number]) => {
+        if ((link[0] === userIndex) && (link[1] === otherUserIndex))
+            areFriends |= 1;
+        if ((link[1] === userIndex) && (link[0] === otherUserIndex))
+            areFriends |= 2;
+    });
+    if (areFriends !== 3) { res.status(401).json(false); return; }
+    if (typeof req.body.P !== "string") { res.status(401).json(false); return; }
+    if (typeof req.body.msgId !== "string") { res.status(401).json(false); return; }
+    // update log
+    for (let i = 0; i < logs.length; i++) {
+        const log = logs[i];
+        if (log.type !== "MSG") continue;
+        if (log.id !== req.body.msgId) continue;
+        if (log.data.state !== 2) break;// log is in the wrong state
+        (logs[i].data as { state: number, EM: string, HP: string, P: string }).state = 3;
+        (logs[i].data as { state: number, EM: string, HP: string, P: string }).P = req.body.P;
+        saveDb();
+        reloadUser(session);
+        reloadUser(sessions[usernameToSessionId[otherUsername]]);// tell "from" user to reload
+        res.json(true);
+        return;
+    }
+    // finding log failed
+    res.status(401).json(false);
+});
+// #endregion messages
+
+app.get("/getUserData", async (req: Request, res: Response) => {
+    if (!validateSession(req, res)) {
+        res.status(401).send("");
+        return;
+    }
+    const cookies: {[key: string]: string} = getCookies(req);
+    const username: string = sessions[cookies[sessionIdCookieName]].username;
+    const userIndex: number = userIndexByName[username];
+    // const user: userType = users[userIndex];
+    let relevantLogs: any[] = [];
+    for (let i = 0; i < logs.length; i++) {
+        const log = logs[i];
+        if ((log.from === userIndex) || (log.to === userIndex))
+            relevantLogs.push({ ...log, from: users[log.from].username, to: users[log.to].username });
+    }
+    let friends_list_ids: number[] = [];
+    userLink.forEach((link: [number, number]) => {
+        if (link[0] === userIndex)
+            friends_list_ids[link[1]] = (friends_list_ids[link[1]] ?? 0) | 1;
+        if (link[1] === userIndex)
+            friends_list_ids[link[0]] = (friends_list_ids[link[0]] ?? 0) | 2;
+    });
+    let friends_list: string[] = [];
+    let online_list: (boolean|undefined)[] = [];
+    friends_list_ids.forEach((state: number, friendId: number) => {
+        if (state === undefined) return;
+        friends_list.push(users[friendId].username);
+        if (state === 3) {
+            const id = usernameToSessionId[users[friendId].username];
+            if (id == undefined) online_list.push(false);
+            else online_list.push(sessions[id].active);
+        } else online_list.push(undefined);
+    });
+    res.json({ name: username, index: userIndex, friends_list, online_list, logs: relevantLogs, online: true });
+});
 app.post("/get_seeds_state", async (req: Request, res: Response) => {
     if (!validateSession(req, res)) {
         res.status(401).send("");
@@ -626,13 +843,12 @@ app.post("/get_seeds_state", async (req: Request, res: Response) => {
         const friendIndex: number = userIndexByName[friendUsername];
         if (friendIndex == undefined) return [ friendUsername, [ 0, 0 ] ];
 
-        let friendedEachOther: boolean|[boolean, boolean] = [ false, false ];
+        let friendedEachOther: [boolean, boolean] = [ false, false ];
         for (let i = 0; i < userLink.length; i++) {
             const link = userLink[i];
             if ((link[0] == userIndex) && (link[1] == friendIndex)) friendedEachOther[0] = true;
             if ((link[1] == userIndex) && (link[0] == friendIndex)) friendedEachOther[1] = true;
         }
-        friendedEachOther = friendedEachOther[0] && friendedEachOther[1];
         
         var inverseHashes: [ string, string, number, number ] = (seedHashTable[friendIndex] ?? [])[userIndex] ?? [ "", "" ];
         let status1: number = 0;
@@ -663,10 +879,10 @@ app.post("/get_seeds_state", async (req: Request, res: Response) => {
         inverseHashes = (seedHashTable[friendIndex] ?? [])[userIndex] ?? [ "", "" ];
         seedHashTable[friendIndex][userIndex] = [ inverseHashes[0], inverseHashes[1], friendStatus1, friendStatus2 ];
         if ((inverseHashes[2] != friendStatus1) || (inverseHashes[2] != friendStatus1)) reloadUser(sessions[usernameToSessionId[friendUsername]]);
-        if (friendedEachOther === true)
+        if ((friendedEachOther[0] && friendedEachOther[1]) === true)
             return [ friendUsername, [ status1, status2 ] ];
         else
-            return [ friendUsername, [ -1, -1 ] ];
+            return [ friendUsername, [ friendedEachOther[0]! ? 0 : -1, friendedEachOther[1]! ? 0 : -1 ] ];
     }));
     res.json(returnValue);
     saveDb();
@@ -721,8 +937,8 @@ app.post("/auth_start", async (req: Request, res: Response) => {
         const log = logs[i];
         if (log.type !== "AUTH") continue;// log isnt for the intended users
         if (log.data.expiration <= time) continue;// log has expired
-        if (log.from !== authFromUsername) continue;// log isnt for the intended users
-        if (log.to !== authToUsername) continue;// log isnt for the intended users
+        if (log.from !== authFromUserIndex) continue;// log isnt for the intended users
+        if (log.to !== authToUserIndex) continue;// log isnt for the intended users
         // found log for those users already opened
         reloadUser(fromSession);
         res.json(false);
@@ -731,9 +947,9 @@ app.post("/auth_start", async (req: Request, res: Response) => {
     logs.push({
         id: generateUUID(),
         type: "AUTH",
-        from: authFromUsername,
-        to: authToUsername,
-        time: time,
+        from: authFromUserIndex,
+        to: authToUserIndex,
+        time,
         data: {
             reason: "",
             state: 0,
@@ -778,12 +994,12 @@ app.post("/auth_from_user", async (req: Request, res: Response) => {
         const log = logs[i];
         if (log.type !== "AUTH") continue;// log isnt for the intended users
         if (log.data.expiration <= time) continue;// log has expired
-        if (log.from !== authFromUsername) continue;// log isnt for the intended users
-        if (log.to !== authToUsername) continue;// log isnt for the intended users
+        if (log.from !== authFromUserIndex) continue;// log isnt for the intended users
+        if (log.to !== authToUserIndex) continue;// log isnt for the intended users
         if (log.data.state !== 0) break;// log is in the wrong state
         // update log
-        logs[i].data.state = 1;
-        logs[i].data.toIp = toSession.ip;
+        (logs[i].data as { reason: string, state: number, expiration: number, fromIp: string, toIp: string }).state = 1;
+        (logs[i].data as { reason: string, state: number, expiration: number, fromIp: string, toIp: string }).toIp = toSession.ip;
         saveDb();
         res.json(true);
         reloadUser(sessions[usernameToSessionId[authFromUsername]]);// tell "from" user to reload
@@ -825,11 +1041,11 @@ app.post("/auth_to_user", async (req: Request, res: Response) => {
         const log = logs[i];
         if (log.type !== "AUTH") continue;// log isnt for the intended users
         if (log.data.expiration <= time) continue;// log has expired
-        if (log.from !== authFromUsername) continue;// log isnt for the intended users
-        if (log.to !== authToUsername) continue;// log isnt for the intended users
+        if (log.from !== authFromUserIndex) continue;// log isnt for the intended users
+        if (log.to !== authToUserIndex) continue;// log isnt for the intended users
         if (log.data.state !== 1) break;// log is in the wrong state
-        logs[i].data.state = 2;
-        logs[i].data.expiration = (new Date()).getTime() - 1000;
+        (logs[i].data as { reason: string, state: number, expiration: number, fromIp: string, toIp: string }).state = 2;
+        (logs[i].data as { reason: string, state: number, expiration: number, fromIp: string, toIp: string }).expiration = (new Date()).getTime() - 1000;
         saveDb();
         res.json(true);
         reloadUser(fromSession);
@@ -840,6 +1056,34 @@ app.post("/auth_to_user", async (req: Request, res: Response) => {
     res.json(false);
 });
 // #endregion auth functions
+app.post("/log_seed_change", async (req: Request, res: Response) => {
+    if (!validateSession(req, res)) {
+        res.status(401).send("");
+        return;
+    }
+    if ((typeof req.body.ES) !== "string") { res.json(false); return; }
+    if ((typeof req.body.seed_hash) !== "string") { res.json(false); return; }
+    // requested from user
+    const cookies: {[seed: string]: string} = getCookies(req);
+    const username: string = sessions[cookies[sessionIdCookieName]].username;
+    const userIndex: number = userIndexByName[username];
+    const time: number = (new Date()).getTime();
+    logs.push({
+        id: generateUUID(),
+        type: "SC",
+        from: userIndex,
+        to: userIndex,
+        time,
+        data: {
+            ES: req.body.ES,
+            seed_hash: req.body.seed_hash
+        }
+    });
+    saveDb();
+    res.json(true);
+    updates[username] = [];
+    reloadStatuses[username] = false;
+});
 
 app.post("/ping", async (req: Request, res: Response) => {
     if (!validateSession(req, res)) {
